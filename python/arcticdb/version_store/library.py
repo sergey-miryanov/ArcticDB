@@ -1261,6 +1261,61 @@ class Library:
         """
         self._nvs.version_store.reload_symbol_list()
 
+    def is_symbol_data_compactable(self, symbol: str, segment_size: int = None) -> bool:
+        """
+        Check whether the reduced number of segments, after compaction, is more or equal to the library setting
+        - "SymbolDataCompact.SegmentCount"
+        (SymbolDataCompact.SegmentCount default is 100)
+
+        Parameters
+        ----------
+        symbol
+            Symbol name.
+        segment_size
+            Target for maximum no. of rows per segment, after compaction.
+            If parameter is not provided, library option for segments's maximum row size will be used
+        """
+        return self._nvs.is_symbol_data_compactable(symbol, segment_size)
+
+    def compact_symbol_data(self, symbol: str, segment_size: int = None) -> VersionedItem:
+        """
+        Compacts fragmented segments, by merging row-sliced segments.
+        If number of segments reduced, after compaction, is less than the config
+        - "SymbolDataCompact.SegmentCount", exception will be thrown.
+        (SymbolDataCompact.SegmentCount default is 100)
+
+        CAUTION - Currently existing column slicing in the library will be removed. Subsequent write will not be affected.
+
+        Parameters
+        ----------
+        symbol
+            Symbol name.
+        segment_size
+            Target for maximum no. of rows per segment, after compaction.
+            If parameter is not provided, library option - "segment_row_size" will be used
+            Note that no. of rows per segment, after compaction, may exceed the target.
+            It is for achieving smallest no. of segment after compaction. Please refer to below example for further explantion.
+
+        Returns
+        -------
+        VersionedItem object that contains a .data and .metadata element.
+
+        Examples
+        --------
+        >>> lib.write("symbol", pd.DataFrame({"A": [0]}, index=[pd.Timestamp(0)]))
+        >>> lib.append("symbol", pd.DataFrame({"A": [1, 2]}, index=[pd.Timestamp(1), pd.Timestamp(2)]))
+        >>> lib.append("symbol", pd.DataFrame({"A": [3]}, index=[pd.Timestamp(3)]))
+                            start_index                     end_index  version_id stream_id          creation_ts          content_hash  index_type  key_type  start_col  end_col  start_row  end_row
+        0 1970-01-01 00:00:00.000000000 1970-01-01 00:00:00.000000001          20      None  1678974096622685727   6872717287607530038          84         2          1        2          0        1
+        1 1970-01-01 00:00:00.000000001 1970-01-01 00:00:00.000000003          21      None  1678974096931527858  12345256156783683504          84         2          1        2          1        3
+        2 1970-01-01 00:00:00.000000003 1970-01-01 00:00:00.000000004          22      None  1678974096970045987   7952936283266921920          84         2          1        2          3        4
+        >>> lib.version_store.compact_symbol_data("symbol", 2)
+                            start_index                     end_index  version_id stream_id          creation_ts         content_hash  index_type  key_type  start_col  end_col  start_row  end_row
+        0 1970-01-01 00:00:00.000000000 1970-01-01 00:00:00.000000003          23      None  1678974097067271451  5576804837479525884          84         2          1        2          0        3
+        1 1970-01-01 00:00:00.000000003 1970-01-01 00:00:00.000000004          23      None  1678974097067427062  7952936283266921920          84         2          1        2          3        4
+        """
+        return self._nvs.compact_symbol_data(symbol, segment_size)
+        
     @property
     def name(self):
         """The name of this library."""

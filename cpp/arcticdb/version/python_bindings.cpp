@@ -415,6 +415,12 @@ void register_bindings(py::module &m) {
         .def("compact_library",
              &PythonVersionStore::compact_library,
              "Compact the whole library wherever necessary")
+        .def("is_symbol_data_compactable",
+             &PythonVersionStore::is_symbol_data_compactable,
+             "Check if there are enough small data segments which can be compacted")
+        .def("compact_symbol_data",
+             &PythonVersionStore::compact_symbol_data,
+             "Compact small data segments into larger data segments")
         .def("get_incomplete_symbols",
              &PythonVersionStore::get_incomplete_symbols,
              "Get all the symbols that have incomplete entries")

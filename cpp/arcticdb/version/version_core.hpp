@@ -96,8 +96,25 @@ VersionedItem compact_incomplete_impl(
     bool append,
     bool convert_int_to_float,
     bool via_iteration,
-    bool sparsify);
+    bool sparsify,
+    const WriteOptions& write_options);
 
+std::tuple<std::shared_ptr<PipelineContext>, ReadQuery, size_t, std::optional<size_t>> get_pre_compaction_info(
+        const std::shared_ptr<Store>& store,
+        const StreamId& stream_id,
+        const UpdateInfo& update_info,
+        const WriteOptions& options,
+        size_t segment_size);
+
+bool is_symbol_data_compactable_impl(size_t segments_need_compaction);
+
+VersionedItem compact_symbol_data_impl(
+        const std::shared_ptr<Store>& store,
+        const StreamId& stream_id,
+        const UpdateInfo& update_info,
+        const WriteOptions& options,
+        size_t segment_size);
+        
 VersionedItem sort_merge_impl(
     const std::shared_ptr<Store>& store,
     const StreamId& stream_id,
@@ -112,14 +129,6 @@ VersionedItem sort_merge_impl(
 void modify_descriptor(
     const std::shared_ptr<pipelines::PipelineContext>& pipeline_context,
     const ReadOptions& read_options);
-
-template <typename IndexType, typename SchemaType, typename SegmentationPolicy, typename DensityPolicy>
-void do_compact(
-    const std::shared_ptr<PipelineContext>& pipeline_context,
-    std::vector<folly::Future<VariantKey>>& fut_vec,
-    std::vector<FrameSlice>& slices,
-    const std::shared_ptr<Store>& store,
-    bool convert_int_to_float);
 
 void read_indexed_keys_to_pipeline(
     const std::shared_ptr<Store>& store,

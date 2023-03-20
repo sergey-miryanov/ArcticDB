@@ -18,7 +18,6 @@
 #include <arcticdb/pipeline/pipeline_context.hpp>
 #include <arcticdb/pipeline/read_frame.hpp>
 #include <arcticdb/pipeline/read_options.hpp>
-#include <arcticdb/stream/segment_aggregator.hpp>
 #include <arcticdb/stream/stream_sink.hpp>
 #include <arcticdb/stream/stream_writer.hpp>
 #include <arcticdb/entity/type_utils.hpp>
@@ -577,10 +576,10 @@ void read_indexed_keys_to_pipeline(
         bucketize_dynamic);
 
     pipeline_context->slice_and_keys_ = filter_index(index_segment_reader, combine_filter_functions(queries));
+    pipeline_context->bucketize_dynamic_ = bucketize_dynamic;
     pipeline_context->total_rows_ = pipeline_context->calc_rows();
     pipeline_context->norm_meta_ = std::make_shared<arcticdb::proto::descriptors::NormalizationMetadata>(std::move(*index_segment_reader.mutable_tsd().mutable_normalization()));
     pipeline_context->user_meta_ = std::make_unique<arcticdb::proto::descriptors::UserDefinedMetadata>(std::move(*index_segment_reader.mutable_tsd().mutable_user_meta()));
-    pipeline_context->bucketize_dynamic_ = bucketize_dynamic;
 }
 
 void read_incompletes_to_pipeline(
@@ -596,7 +595,7 @@ void read_incompletes_to_pipeline(
         store,
         pipeline_context->stream_id_,
         read_query.row_filter,
-        pipeline_context->last_slice_row(),
+        pipeline_context->last_row(),
         via_iteration,
         false);
 
@@ -892,41 +891,6 @@ VersionedItem sort_merge_impl(
     return vit;
 }
 
-
-template <typename IndexType, typename SchemaType, typename SegmentationPolicy, typename DensityPolicy>
-void do_compact(
-    const std::shared_ptr<PipelineContext>& pipeline_context,
-    std::vector<folly::Future<VariantKey>>& fut_vec,
-    std::vector<FrameSlice>& slices,
-    const std::shared_ptr<Store>& store,
-    bool convert_int_to_float) {
-    stream::SegmentAggregator<IndexType, SchemaType, SegmentationPolicy, DensityPolicy>
-    aggregator{
-        [&slices](FrameSlice slice) {
-            slices.emplace_back(std::move(slice));
-            },
-            SchemaType{pipeline_context->descriptor(), index_type_from_descriptor(pipeline_context->descriptor())},
-            [&fut_vec, &store, &pipeline_context](SegmentInMemory &&segment) {
-            auto local_index_start = IndexType::start_value_for_segment(segment);
-            auto local_index_end = IndexType::end_value_for_segment(segment);
-            stream::StreamSink::PartialKey
-            pk{KeyType::TABLE_DATA, pipeline_context->version_id_, pipeline_context->stream_id_, local_index_start, local_index_end};
-            fut_vec.emplace_back(store->write(pk, std::move(segment)));
-            },
-            SegmentationPolicy{}
-    };
-
-    for(auto sk = pipeline_context->incompletes_begin(); sk != pipeline_context->end(); ++sk) {
-        aggregator.add_segment(
-            std::move(sk->slice_and_key().segment(store)),
-            sk->slice_and_key().slice(),
-            convert_int_to_float);
-
-        sk->slice_and_key().unset_segment();
-    }
-    aggregator.commit();
-}
-
 VersionedItem compact_incomplete_impl(
     const std::shared_ptr<Store>& store,
     const StreamId& stream_id,
@@ -935,7 +899,8 @@ VersionedItem compact_incomplete_impl(
     bool append,
     bool convert_int_to_float,
     bool via_iteration,
-    bool sparsify) {
+    bool sparsify,
+    const WriteOptions& write_options) {
 
     auto pipeline_context = std::make_shared<PipelineContext>();
     pipeline_context->stream_id_ = stream_id;
@@ -963,27 +928,25 @@ VersionedItem compact_incomplete_impl(
 
     std::vector<folly::Future<VariantKey>> fut_vec;
     std::vector<FrameSlice> slices;
-    auto index = index_type_from_descriptor(first_seg.descriptor());
-
-    util::variant_match(index, [
-        &fut_vec, &slices, sparsify, pipeline_context=pipeline_context, &store, convert_int_to_float] (auto idx) {
-        using IndexType = decltype(idx);
-
-        if(sparsify) {
-            do_compact<IndexType, DynamicSchema, RowCountSegmentPolicy, SparseColumnPolicy>(
+    bool dynamic_schema = write_options.dynamic_schema;
+    auto policies = std::make_tuple(index_type_from_descriptor(first_seg.descriptor()), 
+                                    dynamic_schema ? VariantSchema{DynamicSchema::default_schema()} : VariantSchema{FixedSchema::default_schema()}, 
+                                    sparsify ? VariantColumnPolicy{SparseColumnPolicy{}} : VariantColumnPolicy{DenseColumnPolicy{}}
+                                    );
+    util::variant_match(std::move(policies), [
+        &fut_vec, &slices, pipeline_context=pipeline_context, &store, convert_int_to_float] (auto &&idx, auto &&schema, auto &&column_policy) {
+        using IndexType = std::remove_reference_t<decltype(idx)>;
+        using SchemaType = std::remove_reference_t<decltype(schema)>;
+        using ColumnPolicyType = std::remove_reference_t<decltype(column_policy)>;
+        do_compact<IndexType, SchemaType, RowCountSegmentPolicy, ColumnPolicyType>(
+                pipeline_context->incompletes_begin(),
+                pipeline_context->end(),
                 pipeline_context,
                 fut_vec,
                 slices,
                 store,
-                convert_int_to_float);
-        } else {
-            do_compact<IndexType, FixedSchema, RowCountSegmentPolicy, DenseColumnPolicy>(
-                pipeline_context,
-                fut_vec,
-                slices,
-                store,
-                convert_int_to_float);
-        }
+                convert_int_to_float,
+                std::nullopt);
     });
 
     auto keys = folly::collect(fut_vec).get();
@@ -997,6 +960,111 @@ VersionedItem compact_incomplete_impl(
         );
 
     store->remove_keys(delete_keys).get();
+    return vit;
+}
+
+std::tuple<std::shared_ptr<PipelineContext>, ReadQuery, size_t, std::optional<size_t>> get_pre_compaction_info(
+        const std::shared_ptr<Store>& store,
+        const StreamId& stream_id,
+        const UpdateInfo& update_info,
+        const WriteOptions& options,
+        size_t segment_size) {
+    util::check(update_info.previous_index_key_.has_value(), "No latest undeleted version found for data compaction");
+
+    auto pipeline_context = std::make_shared<PipelineContext>();
+    pipeline_context->stream_id_ = stream_id;
+    pipeline_context->version_id_ = update_info.next_version_id_;
+
+    ReadQuery read_query;
+    read_indexed_keys_to_pipeline(store, pipeline_context, *(update_info.previous_index_key_), read_query, compaction_read_options_generator(options));
+
+    using CompactionStartInfo = std::pair<size_t, size_t>;//row, segment_append_after
+    std::vector<CompactionStartInfo> first_col_segment_idx;
+    first_col_segment_idx.reserve(pipeline_context->slice_and_keys_.size());
+    std::optional<CompactionStartInfo> compaction_start_info;
+    size_t segment_idx = 0, num_to_segments_after_compact = 0, new_segment_row_size = 0;
+    for(auto rev_it = pipeline_context->slice_and_keys_.begin(); rev_it != pipeline_context->slice_and_keys_.end(); rev_it++) {
+        auto &slice = rev_it->slice();
+
+        if (slice.row_range.diff() < segment_size && !compaction_start_info)
+            compaction_start_info = {slice.row_range.start(), segment_idx};
+            
+        if (slice.col_range.start() == 1){
+            first_col_segment_idx.emplace_back(slice.row_range.start(), segment_idx);
+            if (new_segment_row_size == 0)
+                ++num_to_segments_after_compact;
+            new_segment_row_size += slice.row_range.diff();
+            if (new_segment_row_size >= segment_size)
+                new_segment_row_size = 0;
+        }
+        ++segment_idx;
+        if (compaction_start_info && slice.row_range.start() < compaction_start_info->first){
+            auto it = std::lower_bound(first_col_segment_idx.begin(), first_col_segment_idx.end(), slice.row_range.start(), [](auto lhs, auto rhs){return lhs.first < rhs;});
+            if (it != first_col_segment_idx.end())
+                compaction_start_info = *it;
+            else{
+                log::version().warn("Missing segment containing column 0 for row {}; Resetting compaction starting point to 0", slice.row_range.start());
+                compaction_start_info = {0u, 0u};
+            }
+        }
+    }
+    return {pipeline_context, read_query, first_col_segment_idx.size() - num_to_segments_after_compact, compaction_start_info ? std::make_optional<size_t>(compaction_start_info->second) : std::nullopt};
+}
+
+bool is_symbol_data_compactable_impl(size_t segments_need_compaction){
+    return static_cast<int64_t>(segments_need_compaction) >= ConfigsMap::instance()->get_int("SymbolDataCompact.SegmentCount", 100);
+}
+
+VersionedItem compact_symbol_data_impl(
+        const std::shared_ptr<Store>& store,
+        const StreamId& stream_id,
+        const UpdateInfo& update_info,
+        const WriteOptions& options,
+        size_t segment_size) {
+    auto [pipeline_context, read_query, segments_need_compaction, append_after] = get_pre_compaction_info(
+        store, stream_id, update_info, options, segment_size);
+    util::check(is_symbol_data_compactable_impl(segments_need_compaction) && append_after.has_value(), "Nothing to compact in compact_symbol_data for symbol {}", stream_id);
+    
+    std::vector<entity::VariantKey> delete_keys;
+    for(auto sk = std::next(pipeline_context->begin(), append_after.value()); sk != pipeline_context->end(); ++sk) {
+        delete_keys.emplace_back(sk->slice_and_key().key());
+    }
+    // in the new index segment, we will start appending after this value
+    std::vector<folly::Future<VariantKey>> fut_vec;
+    std::vector<FrameSlice> slices;
+    auto policies = std::make_tuple(index_type_from_descriptor(pipeline_context->descriptor()),
+                                    options.dynamic_schema ? VariantSchema{DynamicSchema::default_schema()} : VariantSchema{FixedSchema::default_schema()}
+                                    );
+
+    util::variant_match(std::move(policies), [
+        &fut_vec, &slices, pipeline_context=pipeline_context, &store, &options, &append_after, segment_size=segment_size, &read_query] (auto &&idx, auto &&schema) {
+        ExecutionContext remove_column_partition_context{};
+        remove_column_partition_context.set_descriptor(pipeline_context->descriptor());
+        read_query.query_->emplace_back(RemoveColumnPartitioningClause{std::make_shared<ExecutionContext>(std::move(remove_column_partition_context))});
+        auto segments = read_and_process(store, pipeline_context, read_query, compaction_read_options_generator(options), append_after.value());
+        using IndexType = std::remove_reference_t<decltype(idx)>;
+        using SchemaType = std::remove_reference_t<decltype(schema)>;
+        do_compact<IndexType, SchemaType, RowCountSegmentPolicy, DenseColumnPolicy>(
+                    segments.begin(),
+                    segments.end(),
+                    pipeline_context,
+                    fut_vec,
+                    slices,
+                    store,
+                    false,
+                    segment_size);
+    });
+
+    auto keys = folly::collect(fut_vec).get();
+    auto vit = collate_and_write(
+            store,
+            pipeline_context,
+            slices,
+            keys,
+            append_after.value(),
+            std::nullopt);
+    
+    store->remove_keys(delete_keys);
     return vit;
 }
 

@@ -715,7 +715,34 @@ VersionedItem LocalVersionedEngine::compact_incomplete_dynamic(
     auto update_info = get_latest_undeleted_version_and_next_version_id(store(), version_map(), stream_id, true, false);
     auto versioned_item =  compact_incomplete_impl(
             store_, stream_id, user_meta, update_info,
-            append, convert_int_to_float, via_iteration, sparsify);
+            append, convert_int_to_float, via_iteration, sparsify, get_write_options());
+
+    version_map_->write_version(store_, versioned_item.key_);
+
+    if(cfg_.symbol_list())
+        symbol_list().add_symbol(store_, stream_id);
+
+    return versioned_item;
+}
+
+bool LocalVersionedEngine::is_symbol_data_compactable(const StreamId& stream_id, std::optional<size_t> segment_size) {
+    auto update_info = get_latest_undeleted_version_and_next_version_id(
+            store(), version_map(), stream_id, true, false);
+    auto [pipeline_context, read_query, segments_need_compaction, append_after] = get_pre_compaction_info(
+        store(), stream_id, update_info, get_write_options(), segment_size.has_value() ? segment_size.value() : cfg_.write_options().segment_row_size());
+    return is_symbol_data_compactable_impl(segments_need_compaction);
+}
+
+VersionedItem LocalVersionedEngine::compact_symbol_data(const StreamId& stream_id, std::optional<size_t> segment_size) {
+    log::version().info("Compacting data for symbol {}", stream_id);
+
+    // Currently compacting only for latest version - is there a use-case to allow compaction for older data?
+    auto update_info = get_latest_undeleted_version_and_next_version_id(
+        store(), version_map(), stream_id, true, false);
+
+    auto versioned_item =  compact_symbol_data_impl(
+            store(), stream_id, update_info, get_write_options(),
+            segment_size.has_value() ? segment_size.value() : cfg_.write_options().segment_row_size());
 
     version_map_->write_version(store_, versioned_item.key_);
 

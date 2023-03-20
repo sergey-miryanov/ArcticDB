@@ -129,6 +129,18 @@ public:
 
     virtual void push_incompletes_to_symbol_list(const std::set<StreamId>& incompletes) = 0;
 
+    virtual VersionedItem compact_incomplete_dynamic(
+        const StreamId& stream_id,
+        const std::optional<arcticdb::proto::descriptors::UserDefinedMetadata>& user_meta,
+        bool append,
+        bool convert_int_to_float,
+        bool via_iteration,
+        bool sparsify) = 0;
+
+    virtual bool is_symbol_data_compactable(const StreamId& stream_id, std::optional<size_t> segment_size) = 0;
+
+    virtual VersionedItem compact_symbol_data(const StreamId& stream_id, std::optional<size_t> segment_size) = 0;
+
     virtual void move_storage(
         KeyType key_type,
         timestamp horizon,
