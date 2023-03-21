@@ -1263,8 +1263,8 @@ class Library:
 
     def is_symbol_data_compactable(self, symbol: str, segment_size: int = None) -> bool:
         """
-        Check whether the reduced number of segments, after compaction, is more or equal to the library setting
-        - "SymbolDataCompact.SegmentCount"
+        Check whether the number of segments can be reduced by compaction, is more or equal to the
+        config map setting - "SymbolDataCompact.SegmentCount"
         (SymbolDataCompact.SegmentCount default is 100)
 
         Parameters
@@ -1274,13 +1274,18 @@ class Library:
         segment_size
             Target for maximum no. of rows per segment, after compaction.
             If parameter is not provided, library option for segments's maximum row size will be used
+
+        Remark
+        ----------
+        Config map setting - SymbolDataCompact.SegmentCount will be replaced by a library setting
+        in the future. This API will allow overriding the setting as well.
         """
         return self._nvs.is_symbol_data_compactable(symbol, segment_size)
 
     def compact_symbol_data(self, symbol: str, segment_size: int = None) -> VersionedItem:
         """
         Compacts fragmented segments, by merging row-sliced segments.
-        If number of segments reduced, after compaction, is less than the config
+        If number of segments going to be reduced by compaction, is less than the config map setting
         - "SymbolDataCompact.SegmentCount", exception will be thrown.
         (SymbolDataCompact.SegmentCount default is 100)
 
@@ -1313,6 +1318,11 @@ class Library:
                             start_index                     end_index  version_id stream_id          creation_ts         content_hash  index_type  key_type  start_col  end_col  start_row  end_row
         0 1970-01-01 00:00:00.000000000 1970-01-01 00:00:00.000000003          23      None  1678974097067271451  5576804837479525884          84         2          1        2          0        3
         1 1970-01-01 00:00:00.000000003 1970-01-01 00:00:00.000000004          23      None  1678974097067427062  7952936283266921920          84         2          1        2          3        4
+
+        Remark
+        ----------
+        Config map setting - SymbolDataCompact.SegmentCount will be replaced by a library setting
+        in the future. This API will allow overriding the setting as well.
         """
         return self._nvs.compact_symbol_data(symbol, segment_size)
         

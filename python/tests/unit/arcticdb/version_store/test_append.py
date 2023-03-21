@@ -12,7 +12,6 @@ from arcticdb.util.test import random_integers, assert_frame_equal
 from arcticdb.util.hypothesis import InputFactories
 from arcticdb_ext.exceptions import InternalException, NormalizationException
 from arcticdb_ext import set_config_int
-from arcticc.toolbox.storage import get_library_tool, KeyType, read_decode, mem_seg_to_dataframe, df_to_keys
 import math
 
 
@@ -284,6 +283,7 @@ def test_(initial: InputFactories, append: InputFactories, match, swap, lmdb_ver
     with pytest.raises(NormalizationException):
         lib.append("s", to_append, match=match)
 
+@pytest.mark.skip("Awaiting support of toolbox")
 @pytest.mark.parametrize(
     [
         "segment_count",
