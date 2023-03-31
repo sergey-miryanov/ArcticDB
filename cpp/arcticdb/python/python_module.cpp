@@ -230,9 +230,12 @@ void register_error_code_ecosystem(py::module& m) {
     py::register_exception<InternalException>(m, "InternalException");
     py::register_exception<NormalizationException>(m, "NormalizationException");
     py::register_exception<MissingDataException>(m, "MissingDataException");
+    py::register_exception<NoSuchVersionException>(m, "NoSuchVersionException");
     py::register_exception<SchemaException>(m, "SchemaException");
     py::register_exception<StorageException>(m, "StorageException");
     py::register_exception<SortingException>(m, "SortingException");
+    py::register_exception<UserInputException>(m, "UserInputException");
+    py::register_exception<CompatibilityException>(m, "CompatibilityException");
 }
 
 
