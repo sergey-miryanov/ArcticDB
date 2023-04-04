@@ -256,6 +256,7 @@ class Library:
         metadata: Any = None,
         prune_previous_versions: bool = True,
         staged=False,
+        validate_index=True,
     ) -> VersionedItem:
         """
         Write ``data`` to the specified ``symbol``. If ``symbol`` already exists then a new version will be created to
@@ -296,6 +297,9 @@ class Library:
             Removes previous (non-snapshotted) versions from the database.
         staged : bool, default=False
             Whether to write to a staging area rather than immediately to the library.
+        validate_index: bool, default=False
+            If True, will verify new data is sorted, but only if it contains a datetime index. ArcticDB relies on Pandas to detect if data is sorted -
+            you can call DataFrame.index.is_monotonic_increasing on your input DataFrame to see if Pandas believes the data to be sorteds
 
             Note that each unit of staged data must a) be datetime indexed and b) not overlap with any other unit of
             staged data. Note that this will create symbols with Dynamic Schema enabled.
@@ -309,6 +313,8 @@ class Library:
         ------
         ArcticUnsupportedDataTypeException
             If ``data`` is not of NormalizableType.
+        UnsortedDataException
+            If data is unsorted, when validate_index is set to True.
 
         Examples
         --------
@@ -350,6 +356,7 @@ class Library:
             prune_previous_version=prune_previous_versions,
             pickle_on_failure=False,
             parallel=staged,
+            validate_index=validate_index,
         )
 
     def write_pickle(
@@ -426,7 +433,7 @@ class Library:
         raise ArcticUnsupportedDataTypeException(error_message)
 
     def write_batch(
-        self, payloads: List[WritePayload], prune_previous_versions: bool = True, staged=False
+        self, payloads: List[WritePayload], prune_previous_versions: bool = True, staged=False, validate_index=True
     ) -> List[VersionedItem]:
         """
         Write a batch of multiple symbols.
@@ -439,6 +446,9 @@ class Library:
             See `write`.
         staged: `bool`, default=False
             See `write`.
+        validate_index: bool, default=False
+            If True, will verify new data is sorted, but only if it contains a datetime index. ArcticDB relies on Pandas to detect if data is sorted -
+            you can call DataFrame.index.is_monotonic_increasing on your input DataFrame to see if Pandas believes the data to be sorted
 
         Returns
         -------
@@ -452,6 +462,8 @@ class Library:
             When duplicate symbols appear in payload.
         ArcticUnsupportedDataTypeException
             If data that is not of NormalizableType appears in any of the payloads.
+        UnsortedDataException
+            If data is unsorted, when validate_index is set to True.
 
         See Also
         --------
@@ -490,6 +502,7 @@ class Library:
             prune_previous_version=prune_previous_versions,
             pickle_on_failure=False,
             parallel=staged,
+            validate_index=validate_index,
         )
 
     def write_batch_pickle(
@@ -535,7 +548,12 @@ class Library:
         )
 
     def append(
-        self, symbol: str, data: NormalizableType, metadata: Any = None, prune_previous_versions: bool = False
+        self,
+        symbol: str,
+        data: NormalizableType,
+        metadata: Any = None,
+        prune_previous_versions: bool = False,
+        validate_index: bool = True,
     ) -> Optional[VersionedItem]:
         """
         Appends the given data to the existing, stored data. Append always appends along the index. A new version will
@@ -558,11 +576,19 @@ class Library:
             not combined in any way with the metadata stored in the previous version.
         prune_previous_versions
             Removes previous (non-snapshotted) versions from the database when True.
+        validate_index: bool, default=False
+            If True, will verify new data is sorted, but only if it contains a datetime index. ArcticDB relies on Pandas to detect if data is sorted -
+            you can call DataFrame.index.is_monotonic_increasing on your input DataFrame to see if Pandas believes the data to be sorted.
 
         Returns
         -------
         VersionedItem
             Structure containing metadata and version number of the written symbol in the store.
+
+        Raises
+        ------
+        UnsortedDataException
+            If data is unsorted, when validate_index is set to True.
 
         Examples
         --------
@@ -597,7 +623,11 @@ class Library:
         2018-01-06       6
         """
         return self._nvs.append(
-            symbol=symbol, dataframe=data, metadata=metadata, prune_previous_version=prune_previous_versions
+            symbol=symbol,
+            dataframe=data,
+            metadata=metadata,
+            prune_previous_version=prune_previous_versions,
+            validate_index=validate_index,
         )
 
     def update(
