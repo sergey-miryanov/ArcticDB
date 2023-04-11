@@ -974,7 +974,7 @@ std::vector<timestamp> LocalVersionedEngine::batch_get_update_times(
     return results;
 }
 
-std::shared_ptr<std::unordered_map<std::pair<StreamId, VersionId>, AtomKey>> LocalVersionedEngine::get_stream_index_map(
+std::pair<std::shared_ptr<std::unordered_map<std::pair<StreamId, VersionId>, AtomKey>>, std::shared_ptr<std::unordered_map<StreamId, AtomKey>>> LocalVersionedEngine::get_stream_index_map(
     const std::vector<StreamId>& stream_ids,
     const std::vector<VersionQuery>& version_queries
     ) {
@@ -996,17 +996,32 @@ std::shared_ptr<std::unordered_map<std::pair<StreamId, VersionId>, AtomKey>> Loc
     for(const auto& latest_version : *latest_versions)
         specific_versions->try_emplace(std::make_pair(latest_version.first, latest_version.second.version_id()), latest_version.second);
 
-    return specific_versions;
+    return std::make_pair(specific_versions, latest_versions);
 }
 
 std::vector<std::pair<VariantKey, std::optional<google::protobuf::Any>>> LocalVersionedEngine::batch_read_metadata_internal(
     const std::vector<StreamId>& stream_ids,
     const std::vector<VersionQuery>& version_queries
     ) {
-    auto stream_index_map = get_stream_index_map(stream_ids, version_queries);
+    auto [stream_index_map, latest_versions] = get_stream_index_map(stream_ids, version_queries);
     std::vector<folly::Future<std::pair<VariantKey, std::optional<google::protobuf::Any>>>> fut_vec;
-    for (const auto &[_, key] : *stream_index_map)
-        fut_vec.push_back(store()->read_metadata(key));
+    for(const auto& stream_id : folly::enumerate(stream_ids)) {
+        const auto& query = version_queries[stream_id.index].content_;
+        if(std::holds_alternative<SpecificVersionQuery>(query)){
+            auto specific_version_map_key = std::pair<StreamId, VersionId>(stream_id, std::get<SpecificVersionQuery>(query).version_id_);
+            auto specific_version_it = stream_index_map->find(specific_version_map_key);
+            if (specific_version_it != stream_index_map->end()){
+                fut_vec.push_back(store()->read_metadata(specific_version_it->second));
+                continue;
+            }
+        }
+        auto last_version_symbol_it = latest_versions->find(stream_id);
+        util::check(last_version_symbol_it != latest_versions->end(), "If we didn't specify or have not found a specific version, we must have the latest one at this point");
+        auto last_version_map_key = std::pair<StreamId, VersionId>(stream_id, last_version_symbol_it->second.version_id());
+        auto last_version_it = stream_index_map->find(last_version_map_key);
+        util::check(last_version_it != stream_index_map->end(), "If we didn't specify or have not found a specific version, we must be able to index this map with the last one");
+        fut_vec.push_back(store()->read_metadata(last_version_it->second));
+    }
 
     return folly::collect(fut_vec).get();
 }

@@ -300,7 +300,7 @@ protected:
      * @param version_queries Only explicit versions are supported at the moment. The implementation currently
      * accepts deleted versions (e.g. to support reading snapshots) and it's the caller's responsibility to verify.
      */
-    std::shared_ptr<std::unordered_map<std::pair<StreamId, VersionId>, AtomKey>> get_stream_index_map(
+    std::pair<std::shared_ptr<std::unordered_map<std::pair<StreamId, VersionId>, AtomKey>>, std::shared_ptr<std::unordered_map<StreamId, AtomKey>>> get_stream_index_map(
         const std::vector<StreamId>& stream_ids,
         const std::vector<VersionQuery>& version_queries);
 

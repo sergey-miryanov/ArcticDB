@@ -14,7 +14,7 @@ from numpy import datetime64
 from arcticdb.supported_types import Timestamp
 
 from arcticdb.version_store.processing import QueryBuilder
-from arcticdb.version_store._store import NativeVersionStore, VersionedItem
+from arcticdb.version_store._store import NativeVersionStore, VersionedItem, VersionQueryInput
 import pandas as pd
 import numpy as np
 import logging
@@ -906,6 +906,35 @@ class Library:
             will be None.
         """
         return self._nvs.read_metadata(symbol, as_of)
+
+    def read_metadata_batch(self, symbols: List[str], as_ofs: Optional[List[AsOf]] = None) -> Dict[str, VersionedItem]:
+        """
+        Return the metadata saved for a list of symbols.  This method is faster than read_batch as it only loads the metadata, not the
+        data itself.
+
+        Parameters
+        ----------
+        symbols: `List[str]`
+            List of symbols to read the metadata for. Elements should not be duplicated.
+        as_ofs: `Optional[List[VersionQueryInput]]`, default=None
+            List of version queries. See documentation of `read` method for more details.
+            i-th entry corresponds to i-th element of `symbols`.
+
+        Returns
+        -------
+        Dict
+            Dictionary of symbol mapping with the versioned items. The data attribute will be None.
+
+        Examples
+        --------
+        >>> lib.read_metadata_batch(
+                ['1', '2', '3'],  # Three symbols to read in batch mode
+                as_ofs=[32, 33, 34]  # Note that number of as_ofs must match number of symbols
+            )
+
+
+        """
+        return self._nvs._batch_read_meta_to_versioned_items(symbols, as_ofs)
 
     def write_metadata(self, symbol: str, metadata: Any) -> VersionedItem:
         """

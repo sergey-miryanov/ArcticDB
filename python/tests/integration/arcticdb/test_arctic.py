@@ -166,6 +166,77 @@ def test_library_management_path_prefix(moto_s3_uri_incl_bucket, boto_client):
         _lib = ac["pytest_test_lib"]
 
 
+def test_read_meta_batch_with_tombstones(arctic_library):
+    lib = arctic_library
+    lib.write_pickle("sym1", 1, {"meta1": 1}, prune_previous_versions=False)
+    lib.write_pickle("sym2", 2, {"meta2": 2}, prune_previous_versions=False)
+    lib.write_pickle("sym3", 3, {"meta3": 3}, prune_previous_versions=False)
+
+    lib.write_pickle("sym1", 1, {"meta1": 4}, prune_previous_versions=False)
+    lib.write_pickle("sym2", 2, {"meta2": 5}, prune_previous_versions=False)
+    lib.write_pickle("sym3", 3, {"meta3": 6}, prune_previous_versions=False)
+
+    lib.write_pickle("sym1", 1, {"meta1": 6}, prune_previous_versions=False)
+    lib.write_pickle("sym2", 2, {"meta2": 7}, prune_previous_versions=False)
+    lib.write_pickle("sym3", 3, {"meta3": 8}, prune_previous_versions=False)
+
+    results_dict = lib.read_metadata_batch(["sym1", "sym2", "sym3"])
+    assert results_dict[0].metadata == {"meta1": 6}
+    assert results_dict[1].metadata == {"meta2": 7}
+    assert results_dict[2].metadata == {"meta3": 8}
+
+    lib.delete("sym1", versions=2)
+    lib.delete("sym2", versions=2)
+    lib.delete("sym3", versions=2)
+
+    results_dict = lib.read_metadata_batch(["sym1", "sym2", "sym3"])
+    assert results_dict[0].metadata == {"meta1": 4}
+    assert results_dict[1].metadata == {"meta2": 5}
+    assert results_dict[2].metadata == {"meta3": 6}
+
+    assert lib.read_metadata("sym1").metadata == results_dict[0].metadata
+    assert lib.read_metadata("sym2").metadata == results_dict[1].metadata
+    assert lib.read_metadata("sym3").metadata == results_dict[2].metadata
+
+
+def test_read_meta_batch_with_as_of(arctic_library):
+    lib = arctic_library
+    lib.write_pickle("sym1", 1, {"meta1": 1}, prune_previous_versions=False)
+    lib.write_pickle("sym2", 2, {"meta2": 2}, prune_previous_versions=False)
+    lib.write_pickle("sym3", 3, {"meta3": 3}, prune_previous_versions=False)
+
+    lib.write_pickle("sym1", 1, {"meta1": 4}, prune_previous_versions=False)
+    lib.write_pickle("sym2", 2, {"meta2": 5}, prune_previous_versions=False)
+    lib.write_pickle("sym3", 3, {"meta3": 6}, prune_previous_versions=False)
+
+    lib.write_pickle("sym1", 1, {"meta1": 6}, prune_previous_versions=False)
+    lib.write_pickle("sym2", 2, {"meta2": 7}, prune_previous_versions=False)
+    lib.write_pickle("sym3", 3, {"meta3": 8}, prune_previous_versions=False)
+    # v0 and v1 should be pruned by now.
+
+    results_dict = lib.read_metadata_batch(["sym1", "sym2", "sym3"])
+    assert results_dict[0].metadata == {"meta1": 6}
+    assert results_dict[1].metadata == {"meta2": 7}
+    assert results_dict[2].metadata == {"meta3": 8}
+
+    assert lib.read_metadata("sym1").metadata == results_dict[0].metadata
+    assert lib.read_metadata("sym2").metadata == results_dict[1].metadata
+    assert lib.read_metadata("sym3").metadata == results_dict[2].metadata
+
+    results_dict = lib.read_metadata_batch(["sym1", "sym2", "sym3"], [0, 0, 0])
+    print("results_dict")
+    print(results_dict)
+    print("results_dict out")
+    assert results_dict[0].metadata == {"meta1": 1}
+    assert results_dict[1].metadata == {"meta2": 2}
+    assert results_dict[2].metadata == {"meta3": 3}
+
+    results_dict = lib.read_metadata_batch(["sym1", "sym2", "sym3"], [1, 1, 1])
+    assert results_dict[0].metadata == {"meta1": 4}
+    assert results_dict[1].metadata == {"meta2": 5}
+    assert results_dict[2].metadata == {"meta3": 6}
+
+
 def test_basic_write_read_update_and_append(arctic_library):
     lib = arctic_library
     df = pd.DataFrame({"col1": [1, 2, 3], "col2": [4, 5, 6]})
@@ -1079,4 +1150,3 @@ def test_reload_symbol_list(moto_s3_uri_incl_bucket, boto_client):
 
     lib.reload_symbol_list()
     assert len(get_symbol_list_keys()) == 1
-

@@ -881,21 +881,33 @@ class NativeVersionStore:
             Dictionary of symbol mapping with the versioned items. The data attribute will be None.
         """
         _check_batch_kwargs(NativeVersionStore.batch_read_metadata, NativeVersionStore.read_metadata, kwargs)
-        results_dict = {}
+        meta_items = self._batch_read_meta_to_versioned_items(symbols, as_ofs, kwargs)
+        return {v.symbol: v for v in meta_items}
+
+    def _batch_read_meta_to_versioned_items(self, symbols, as_ofs, kwargs=None):
+        if kwargs is None:
+            kwargs = dict()
+        meta_data_list = []
         version_queries = self._get_version_queries(len(symbols), as_ofs, **kwargs)
+        print("symbols")
+        print(symbols)
+        print("result")
         for result in self.version_store.batch_read_metadata(symbols, version_queries):
             vitem, udm = result
+            print(vitem.symbol)
             meta = denormalize_user_metadata(udm, self._normalizer) if udm else None
-            results_dict[vitem.symbol] = VersionedItem(
-                symbol=vitem.symbol,
-                library=self._library.library_path,
-                data=None,
-                version=vitem.version,
-                metadata=meta,
-                host=self.env,
+            meta_data_list.append(
+                VersionedItem(
+                    symbol=vitem.symbol,
+                    library=self._library.library_path,
+                    data=None,
+                    version=vitem.version,
+                    metadata=meta,
+                    host=self.env,
+                )
             )
 
-        return results_dict
+        return meta_data_list
 
     def batch_read_metadata_multi(
         self, symbols: List[str], as_ofs: Optional[List[VersionQueryInput]] = None, **kwargs
