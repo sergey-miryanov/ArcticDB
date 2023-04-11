@@ -1255,6 +1255,46 @@ class Library:
             date_range=info["date_range"],
         )
 
+    def get_description_batch(
+        self, symbols: List[Union[str, ReadRequest]], as_ofs: Optional[List[AsOf]] = None
+    ) -> List[SymbolDescription]:
+        """
+        Returns descriptive data for a list of ``symbols``.
+
+        Parameters
+        ----------
+        symbols : List[Union[str, ReadRequest]
+            List of symbols to read the description.
+
+        Returns
+        -------
+        List[SymbolDescription]
+            List of Named tuple containing the descriptive data.
+
+        See Also
+        --------
+        SymbolDescription
+            For documentation on each field.
+        """
+        infos = self._nvs.get_batch_info(symbols, as_ofs)
+        list_descriptions = []
+        for info in infos:
+            last_update_time = pd.to_datetime(info["last_update"]).to_pydatetime()
+            columns = tuple(NameWithDType(n, t) for n, t in zip(info["col_names"]["columns"], info["dtype"]))
+            index = NameWithDType(info["col_names"]["index"], info["col_names"]["index_dtype"])
+
+            list_descriptions.append(
+                SymbolDescription(
+                    columns=columns,
+                    index=index,
+                    row_count=info["rows"],
+                    last_update_time=last_update_time,
+                    index_type=info["index_type"],
+                    date_range=info["date_range"],
+                )
+            )
+        return list_descriptions
+
     def reload_symbol_list(self):
         """
         Forces the symbol list cache to be reloaded

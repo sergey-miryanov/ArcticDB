@@ -1034,22 +1034,14 @@ std::pair<VersionedItem, py::object> PythonVersionStore::read_descriptor(
     const StreamId& stream_id,
     const VersionQuery& version_query
     ) {
-    ARCTICDB_SAMPLE(ReadDescriptor, 0)
+    return read_descriptor_version_internal(stream_id, version_query);
+}
 
-    py::object pyobj;
-    auto version = get_version_to_read(stream_id, version_query);
-    if(!version)
-        throw NoDataFoundException(fmt::format("read_descriptor: version not found for stream", stream_id));
-
-    if (auto metadata_proto = store()->read_metadata(version->key_).get().second; metadata_proto) {
-        arcticdb::proto::descriptors::TimeSeriesDescriptor tsd;
-        metadata_proto->UnpackTo(&tsd);
-        pyobj = python_util::pb_to_python(tsd);
-    } else {
-        pyobj = pybind11::none();
-    }
-
-    return std::pair{version.value(), pyobj};
+std::vector<std::pair<VersionedItem, py::object>> PythonVersionStore::batch_read_descriptor(
+        const std::vector<StreamId>& stream_ids,
+        const std::vector<VersionQuery>& version_queries){
+    auto versions_and_py_objs = batch_read_descriptor_internal(stream_ids, version_queries);
+    return versions_and_py_objs;
 }
 
 ReadResult PythonVersionStore::read_index(

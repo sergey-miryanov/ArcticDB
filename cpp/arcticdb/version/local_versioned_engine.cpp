@@ -249,6 +249,42 @@ std::pair<VersionedItem, FrameAndDescriptor> LocalVersionedEngine::read_datafram
     return std::make_pair(version.value_or(VersionedItem{}), std::move(frame_and_descriptor));
 }
 
+std::pair<VersionedItem, py::object> LocalVersionedEngine::read_descriptor_version_internal(
+        const StreamId& stream_id,
+        const VersionQuery& version_query
+    ) {
+    ARCTICDB_SAMPLE(ReadDescriptor, 0)
+
+    py::object pyobj;
+    auto version = get_version_to_read(stream_id, version_query);
+    if(!version)
+        throw NoDataFoundException(fmt::format("read_descriptor: version not found for stream '{}'", stream_id));
+
+    if (auto metadata_proto = store()->read_metadata(version->key_).get().second; metadata_proto) {
+        arcticdb::proto::descriptors::TimeSeriesDescriptor tsd;
+        metadata_proto->UnpackTo(&tsd);
+        pyobj = python_util::pb_to_python(tsd);
+    } else {
+        pyobj = pybind11::none();
+    }
+
+    return std::pair{version.value(), pyobj};
+}
+
+std::vector<std::pair<VersionedItem, py::object>> LocalVersionedEngine::batch_read_descriptor_internal(
+        const std::vector<StreamId>& stream_ids,
+        const std::vector<VersionQuery>& version_queries) {
+    std::vector<folly::Future<std::pair<VersionedItem, py::object>>> results_fut;
+    for (size_t idx=0; idx < stream_ids.size(); idx++) {
+        auto version_query = version_queries.size() > idx ? version_queries[idx] : VersionQuery{};
+        results_fut.push_back(read_descriptor_version_internal(stream_ids[idx],
+                                                              version_query));
+    }
+    return folly::collect(results_fut).get();
+}
+
+
+
 void LocalVersionedEngine::flush_version_map() {
     version_map()->flush();
 }

@@ -32,7 +32,7 @@ from arcticdb.version_store._store import UNSUPPORTED_S3_CHARS, MAX_SYMBOL_SIZE,
 from arcticdb.version_store.helper import ArcticMemoryConfig, get_lib_cfg
 from arcticdb_ext.storage import NoDataFoundException
 from arcticdb_ext.version_store import NoSuchVersionException, StreamDescriptorMismatch
-from arcticc.pb2.descriptors_pb2 import NormalizationMetadata # Importing from arcticdb dynamically loads arcticc.pb2
+from arcticc.pb2.descriptors_pb2 import NormalizationMetadata  # Importing from arcticdb dynamically loads arcticc.pb2
 from arcticdb.util.test import (
     sample_dataframe,
     sample_dataframe_only_strings,

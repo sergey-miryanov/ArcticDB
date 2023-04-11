@@ -111,6 +111,10 @@ public:
         ReadQuery& read_query,
         const ReadOptions& read_options) override;
 
+    std::pair<VersionedItem, py::object> read_descriptor_version_internal(
+            const StreamId& stream_id,
+            const VersionQuery& version_query);
+
     void write_parallel_frame(
         const StreamId& stream_id,
         InputTensorFrame&& frame) const override;
@@ -213,6 +217,10 @@ public:
         const std::vector<VersionQuery>& version_queries,
         std::vector<ReadQuery>& read_queries,
         const ReadOptions& read_options);
+
+    std::vector<std::pair<VersionedItem, py::object>> batch_read_descriptor_internal(
+            const std::vector<StreamId>& stream_ids,
+            const std::vector<VersionQuery>& version_queries);
 
     std::vector<std::pair<VersionedItem, arcticdb::proto::descriptors::TimeSeriesDescriptor>> batch_restore_version_internal(
         const std::vector<StreamId>& stream_ids,

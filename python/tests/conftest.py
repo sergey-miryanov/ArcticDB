@@ -230,7 +230,6 @@ def _version_store_factory_impl(
 
 
 def lmdb_version_store_cleanup(version_store_fixture):
-
     @functools.wraps(version_store_fixture)
     def wrapped(*args, **kwargs):
         result: NativeVersionStore = version_store_fixture(*args, **kwargs)
@@ -260,7 +259,9 @@ def version_store_factory(arcticdb_test_lmdb_config, lib_name):
     `name` can be a magical value "_unique_" which will create libs with unique names."""
     used = {}
 
-    def version_store(col_per_group: Optional[int] = None, row_per_segment: Optional[int] = None, **kwargs) -> NativeVersionStore:
+    def version_store(
+        col_per_group: Optional[int] = None, row_per_segment: Optional[int] = None, **kwargs
+    ) -> NativeVersionStore:
         if col_per_group is not None and "column_group_size" not in kwargs:
             kwargs["column_group_size"] = col_per_group
         if row_per_segment is not None and "segment_row_size" not in kwargs:
