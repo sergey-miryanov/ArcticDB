@@ -1288,11 +1288,9 @@ class Library:
     def defragment_symbol_data(self, symbol: str, segment_size: int = None) -> VersionedItem:
         """
         Compacts fragmented segments by merging row-sliced segments (https://docs.arcticdb.io/technical/on_disk_storage/#data-layer).
-        This method calls `is_symbol_fragmented` to determine whether to proceed with the defragmentation operation. If `is_symbol_fragmented` 
-        returns false, this method will raise an exception with error code 1002. 
+        This method calls `is_symbol_fragmented` to determine whether to proceed with the defragmentation operation. 
 
-        CAUTION - One caveat of this method is that the resulting data will not be column sliced which may impact the performance 
-
+        CAUTION - One caveat of this method is that the resulting data will not be column sliced which may impact the performance
         of read operations. 
 
         Parameters
@@ -1308,6 +1306,11 @@ class Library:
         Returns
         -------
         VersionedItem object that contains a .data and .metadata element.
+
+        Raises
+        ------
+        1002:E_ASSERTION_FAILURE
+            If `is_symbol_fragmented` returns false.
 
         Examples
         --------
