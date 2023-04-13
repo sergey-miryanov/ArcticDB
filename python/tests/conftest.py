@@ -177,6 +177,29 @@ def _version_store_factory_impl(
     return out
 
 
+def lmdb_version_store_cleanup(version_store_fixture):
+
+    @functools.wraps(version_store_fixture)
+    def wrapped(*args, **kwargs):
+        result: NativeVersionStore = version_store_fixture(*args, **kwargs)
+
+        yield result
+
+        #  pytest holds a member variable `cached_result` equal to `result` above which keeps the storage alive and
+        #  locked. See https://github.com/pytest-dev/pytest/issues/5642 . So we need to decref the C++ objects keeping
+        #  the LMDB env open before they will release the lock and allow Windows to delete the LMDB files.
+        result.version_store = None
+        result._library = None
+
+        cfg = result.lib_cfg()
+        for storage in cfg.storage_by_id.values():
+            lmdb = LmdbConfig()
+            lmdb.ParseFromString(storage.config.value)
+            shutil.rmtree(lmdb.path, True)
+
+    return wrapped
+
+
 @pytest.fixture
 def version_store_factory(lib_name, tmpdir):
     """Factory to create any number of distinct LMDB libs with the given WriteOptions or VersionStoreConfig.
@@ -264,6 +287,7 @@ def lmdb_version_store_column_buckets(version_store_factory, request):
     return version_store_factory(dynamic_schema=True, column_group_size=3, segment_row_size=2, bucketize_dynamic=True, reuse_name=request.param)
 
 @pytest.fixture(scope='function', params=[False])
+@lmdb_version_store_cleanup
 def lmdb_version_store_column_buckets_dynamic_string(version_store_factory, request):
     print("request ", request)
     return version_store_factory(dynamic_schema=True, column_group_size=3, segment_row_size=2, bucketize_dynamic=True, dynamic_strings=True, reuse_name=request.param)
@@ -324,6 +348,7 @@ def lmdb_version_store_tiny_segment(version_store_factory, request):
     return version_store_factory(column_group_size=2, segment_row_size=2, lmdb_config={"map_size": 2 ** 30}, reuse_name=request.param)
 
 @pytest.fixture(scope='function', params=[False])
+@lmdb_version_store_cleanup
 def lmdb_version_store_tiny_segment_dynamic_string(version_store_factory, request):
     return version_store_factory(column_group_size=2, segment_row_size=2, dynamic_strings=True, reuse_name=request.param)
 
@@ -333,6 +358,7 @@ def lmdb_version_store_tiny_segment_dynamic(version_store_factory, request):
     return version_store_factory(column_group_size=2, segment_row_size=2, dynamic_schema=True, reuse_name=request.param)
 
 @pytest.fixture(scope='function', params=[False])
+@lmdb_version_store_cleanup
 def lmdb_version_store_tiny_segment_dynamic_dynamic_string(version_store_factory, request):
     return version_store_factory(column_group_size=2, segment_row_size=2, dynamic_schema=True, dynamic_strings=True, reuse_name=request.param)
 
