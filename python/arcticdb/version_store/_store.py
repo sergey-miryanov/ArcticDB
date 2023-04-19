@@ -2327,7 +2327,7 @@ class NativeVersionStore:
 
         Raises
         ------
-        1002:E_ASSERTION_FAILURE
+        1002 ErrorCategory.INTERNAL:E_ASSERTION_FAILURE
             If `is_symbol_fragmented` returns false.
 
         Examples
