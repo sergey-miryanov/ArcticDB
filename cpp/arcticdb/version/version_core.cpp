@@ -963,7 +963,7 @@ VersionedItem compact_incomplete_impl(
     return vit;
 }
 
-std::tuple<std::shared_ptr<PipelineContext>, ReadQuery, size_t, std::optional<size_t>> get_pre_compaction_info(
+std::tuple<std::shared_ptr<PipelineContext>, ReadQuery, size_t, std::optional<size_t>> get_pre_defragmentation_info(
         const std::shared_ptr<Store>& store,
         const StreamId& stream_id,
         const UpdateInfo& update_info,
@@ -976,7 +976,7 @@ std::tuple<std::shared_ptr<PipelineContext>, ReadQuery, size_t, std::optional<si
     pipeline_context->version_id_ = update_info.next_version_id_;
 
     ReadQuery read_query;
-    read_indexed_keys_to_pipeline(store, pipeline_context, *(update_info.previous_index_key_), read_query, compaction_read_options_generator(options));
+    read_indexed_keys_to_pipeline(store, pipeline_context, *(update_info.previous_index_key_), read_query, defragmentation_read_options_generator(options));
 
     using CompactionStartInfo = std::pair<size_t, size_t>;//row, segment_append_after
     std::vector<CompactionStartInfo> first_col_segment_idx;
@@ -1011,19 +1011,19 @@ std::tuple<std::shared_ptr<PipelineContext>, ReadQuery, size_t, std::optional<si
     return {pipeline_context, read_query, first_col_segment_idx.size() - num_to_segments_after_compact, compaction_start_info ? std::make_optional<size_t>(compaction_start_info->second) : std::nullopt};
 }
 
-bool is_symbol_data_compactable_impl(size_t segments_need_compaction){
+bool is_symbol_fragmented_impl(size_t segments_need_compaction){
     return static_cast<int64_t>(segments_need_compaction) >= ConfigsMap::instance()->get_int("SymbolDataCompact.SegmentCount", 100);
 }
 
-VersionedItem compact_symbol_data_impl(
+VersionedItem defragment_symbol_data_impl(
         const std::shared_ptr<Store>& store,
         const StreamId& stream_id,
         const UpdateInfo& update_info,
         const WriteOptions& options,
         size_t segment_size) {
-    auto [pipeline_context, read_query, segments_need_compaction, append_after] = get_pre_compaction_info(
+    auto [pipeline_context, read_query, segments_need_compaction, append_after] = get_pre_defragmentation_info(
         store, stream_id, update_info, options, segment_size);
-    util::check(is_symbol_data_compactable_impl(segments_need_compaction) && append_after.has_value(), "Nothing to compact in compact_symbol_data for symbol {}", stream_id);
+    util::check(is_symbol_fragmented_impl(segments_need_compaction) && append_after.has_value(), "Nothing to compact in defragment_symbol_data for symbol {}", stream_id);
     
     std::vector<entity::VariantKey> delete_keys;
     for(auto sk = std::next(pipeline_context->begin(), append_after.value()); sk != pipeline_context->end(); ++sk) {
@@ -1041,7 +1041,7 @@ VersionedItem compact_symbol_data_impl(
         ExecutionContext remove_column_partition_context{};
         remove_column_partition_context.set_descriptor(pipeline_context->descriptor());
         read_query.query_->emplace_back(RemoveColumnPartitioningClause{std::make_shared<ExecutionContext>(std::move(remove_column_partition_context))});
-        auto segments = read_and_process(store, pipeline_context, read_query, compaction_read_options_generator(options), append_after.value());
+        auto segments = read_and_process(store, pipeline_context, read_query, defragmentation_read_options_generator(options), append_after.value());
         using IndexType = std::remove_reference_t<decltype(idx)>;
         using SchemaType = std::remove_reference_t<decltype(schema)>;
         do_compact<IndexType, SchemaType, RowCountSegmentPolicy, DenseColumnPolicy>(

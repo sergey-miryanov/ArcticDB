@@ -1261,41 +1261,45 @@ class Library:
         """
         self._nvs.version_store.reload_symbol_list()
 
-    def is_symbol_data_compactable(self, symbol: str, segment_size: int = None) -> bool:
+    def is_symbol_fragmented(self, symbol: str, segment_size: int = None) -> bool:
         """
-        Check whether the number of segments can be reduced by compaction, is more or equal to the
-        config map setting - "SymbolDataCompact.SegmentCount"
-        (SymbolDataCompact.SegmentCount default is 100)
+        Check whether the number of segments that would be reduced by compaction is more than or equal to the
+        value specified by the configuration option "SymbolDataCompact.SegmentCount" (defaults to 100).
 
         Parameters
         ----------
-        symbol
+        symbol: `str`
             Symbol name.
-        segment_size
+        segment_size: `int`
             Target for maximum no. of rows per segment, after compaction.
             If parameter is not provided, library option for segments's maximum row size will be used
 
-        Remark
+        Notes
         ----------
         Config map setting - SymbolDataCompact.SegmentCount will be replaced by a library setting
         in the future. This API will allow overriding the setting as well.
+        
+        Returns
+        -------
+        bool
         """
-        return self._nvs.is_symbol_data_compactable(symbol, segment_size)
+        return self._nvs.is_symbol_fragmented(symbol, segment_size)
 
-    def compact_symbol_data(self, symbol: str, segment_size: int = None) -> VersionedItem:
+    def defragment_symbol_data(self, symbol: str, segment_size: int = None) -> VersionedItem:
         """
-        Compacts fragmented segments, by merging row-sliced segments.
-        If number of segments going to be reduced by compaction, is less than the config map setting
-        - "SymbolDataCompact.SegmentCount", exception will be thrown.
-        (SymbolDataCompact.SegmentCount default is 100)
+        Compacts fragmented segments by merging row-sliced segments (https://docs.arcticdb.io/technical/on_disk_storage/#data-layer).
+        This method calls `is_symbol_fragmented` to determine whether to proceed with the defragmentation operation. If `is_symbol_fragmented` 
+        returns false, this method will raise an exception with error code 1002. 
 
-        CAUTION - Currently existing column slicing in the library will be removed. Subsequent write will not be affected.
+        CAUTION - One caveat of this method is that the resulting data will not be column sliced which may impact the performance 
+
+        of read operations. 
 
         Parameters
         ----------
-        symbol
+        symbol: `str`
             Symbol name.
-        segment_size
+        segment_size: `int`
             Target for maximum no. of rows per segment, after compaction.
             If parameter is not provided, library option - "segment_row_size" will be used
             Note that no. of rows per segment, after compaction, may exceed the target.
@@ -1310,21 +1314,23 @@ class Library:
         >>> lib.write("symbol", pd.DataFrame({"A": [0]}, index=[pd.Timestamp(0)]))
         >>> lib.append("symbol", pd.DataFrame({"A": [1, 2]}, index=[pd.Timestamp(1), pd.Timestamp(2)]))
         >>> lib.append("symbol", pd.DataFrame({"A": [3]}, index=[pd.Timestamp(3)]))
+        >>> lib.read_index(sym)
                             start_index                     end_index  version_id stream_id          creation_ts          content_hash  index_type  key_type  start_col  end_col  start_row  end_row
-        0 1970-01-01 00:00:00.000000000 1970-01-01 00:00:00.000000001          20      None  1678974096622685727   6872717287607530038          84         2          1        2          0        1
-        1 1970-01-01 00:00:00.000000001 1970-01-01 00:00:00.000000003          21      None  1678974096931527858  12345256156783683504          84         2          1        2          1        3
-        2 1970-01-01 00:00:00.000000003 1970-01-01 00:00:00.000000004          22      None  1678974096970045987   7952936283266921920          84         2          1        2          3        4
-        >>> lib.version_store.compact_symbol_data("symbol", 2)
+        1970-01-01 00:00:00.000000000 1970-01-01 00:00:00.000000001          20    b'sym'  1678974096622685727   6872717287607530038          84         2          1        2          0        1
+        1970-01-01 00:00:00.000000001 1970-01-01 00:00:00.000000003          21    b'sym'  1678974096931527858  12345256156783683504          84         2          1        2          1        3
+        1970-01-01 00:00:00.000000003 1970-01-01 00:00:00.000000004          22    b'sym'  1678974096970045987   7952936283266921920          84         2          1        2          3        4
+        >>> lib.version_store.defragment_symbol_data("symbol", 2)
+        >>> lib.read_index(sym)  # Returns two segments rather than three as a result of the defragmentation operation
                             start_index                     end_index  version_id stream_id          creation_ts         content_hash  index_type  key_type  start_col  end_col  start_row  end_row
-        0 1970-01-01 00:00:00.000000000 1970-01-01 00:00:00.000000003          23      None  1678974097067271451  5576804837479525884          84         2          1        2          0        3
-        1 1970-01-01 00:00:00.000000003 1970-01-01 00:00:00.000000004          23      None  1678974097067427062  7952936283266921920          84         2          1        2          3        4
+        1970-01-01 00:00:00.000000000 1970-01-01 00:00:00.000000003          23    b'sym'  1678974097067271451  5576804837479525884          84         2          1        2          0        3
+        1970-01-01 00:00:00.000000003 1970-01-01 00:00:00.000000004          23    b'sym'  1678974097067427062  7952936283266921920          84         2          1        2          3        4
 
-        Remark
+        Notes
         ----------
         Config map setting - SymbolDataCompact.SegmentCount will be replaced by a library setting
         in the future. This API will allow overriding the setting as well.
         """
-        return self._nvs.compact_symbol_data(symbol, segment_size)
+        return self._nvs.defragment_symbol_data(symbol, segment_size)
         
     @property
     def name(self):

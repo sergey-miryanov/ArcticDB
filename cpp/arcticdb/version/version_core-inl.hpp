@@ -144,7 +144,7 @@ void do_compact(
         aggregator.commit();
 }
 
-[[nodiscard]] inline ReadOptions compaction_read_options_generator(const WriteOptions &options){
+[[nodiscard]] inline ReadOptions defragmentation_read_options_generator(const WriteOptions &options){
     ReadOptions read_options;
     read_options.set_dynamic_schema(options.dynamic_schema);
     return read_options;

@@ -258,10 +258,15 @@ def lmdb_version_store_prune_previous(version_store_factory):
 def lmdb_version_store_big_map(version_store_factory):
     return version_store_factory(lmdb_config={"map_size": 2**30})
 
+@pytest.fixture(scope='function', params=[False])
+@lmdb_version_store_cleanup
+def lmdb_version_store_column_buckets(version_store_factory, request):
+    return version_store_factory(dynamic_schema=True, column_group_size=3, segment_row_size=2, bucketize_dynamic=True, reuse_name=request.param)
 
-@pytest.fixture
-def lmdb_version_store_column_buckets(version_store_factory):
-    return version_store_factory(dynamic_schema=True, column_group_size=3, segment_row_size=2, bucketize_dynamic=True)
+@pytest.fixture(scope='function', params=[False])
+def lmdb_version_store_column_buckets_dynamic_string(version_store_factory, request):
+    print("request ", request)
+    return version_store_factory(dynamic_schema=True, column_group_size=3, segment_row_size=2, bucketize_dynamic=True, dynamic_strings=True, reuse_name=request.param)
 
 
 @pytest.fixture
@@ -313,15 +318,23 @@ def lmdb_version_store_ignore_order(version_store_factory):
 def lmdb_version_store_small_segment(version_store_factory):
     return version_store_factory(column_group_size=1000, segment_row_size=1000, lmdb_config={"map_size": 2**30})
 
+@pytest.fixture(scope='function', params=[False])
+@lmdb_version_store_cleanup
+def lmdb_version_store_tiny_segment(version_store_factory, request):
+    return version_store_factory(column_group_size=2, segment_row_size=2, lmdb_config={"map_size": 2 ** 30}, reuse_name=request.param)
 
-@pytest.fixture
-def lmdb_version_store_tiny_segment(version_store_factory):
-    return version_store_factory(column_group_size=2, segment_row_size=2, lmdb_config={"map_size": 2**30})
+@pytest.fixture(scope='function', params=[False])
+def lmdb_version_store_tiny_segment_dynamic_string(version_store_factory, request):
+    return version_store_factory(column_group_size=2, segment_row_size=2, dynamic_strings=True, reuse_name=request.param)
 
+@pytest.fixture(scope='function', params=[False])
+@lmdb_version_store_cleanup
+def lmdb_version_store_tiny_segment_dynamic(version_store_factory, request):
+    return version_store_factory(column_group_size=2, segment_row_size=2, dynamic_schema=True, reuse_name=request.param)
 
-@pytest.fixture
-def lmdb_version_store_tiny_segment_dynamic(version_store_factory):
-    return version_store_factory(column_group_size=2, segment_row_size=2, dynamic_schema=True)
+@pytest.fixture(scope='function', params=[False])
+def lmdb_version_store_tiny_segment_dynamic_dynamic_string(version_store_factory, request):
+    return version_store_factory(column_group_size=2, segment_row_size=2, dynamic_schema=True, dynamic_strings=True, reuse_name=request.param)
 
 
 @pytest.fixture

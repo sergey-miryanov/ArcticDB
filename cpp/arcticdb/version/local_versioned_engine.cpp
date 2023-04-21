@@ -725,22 +725,22 @@ VersionedItem LocalVersionedEngine::compact_incomplete_dynamic(
     return versioned_item;
 }
 
-bool LocalVersionedEngine::is_symbol_data_compactable(const StreamId& stream_id, std::optional<size_t> segment_size) {
+bool LocalVersionedEngine::is_symbol_fragmented(const StreamId& stream_id, std::optional<size_t> segment_size) {
     auto update_info = get_latest_undeleted_version_and_next_version_id(
             store(), version_map(), stream_id, true, false);
-    auto [pipeline_context, read_query, segments_need_compaction, append_after] = get_pre_compaction_info(
+    auto [pipeline_context, read_query, segments_need_compaction, append_after] = get_pre_defragmentation_info(
         store(), stream_id, update_info, get_write_options(), segment_size.has_value() ? segment_size.value() : cfg_.write_options().segment_row_size());
-    return is_symbol_data_compactable_impl(segments_need_compaction);
+    return is_symbol_fragmented_impl(segments_need_compaction);
 }
 
-VersionedItem LocalVersionedEngine::compact_symbol_data(const StreamId& stream_id, std::optional<size_t> segment_size) {
-    log::version().info("Compacting data for symbol {}", stream_id);
+VersionedItem LocalVersionedEngine::defragment_symbol_data(const StreamId& stream_id, std::optional<size_t> segment_size) {
+    log::version().info("Defragmenting data for symbol {}", stream_id);
 
-    // Currently compacting only for latest version - is there a use-case to allow compaction for older data?
+    // Currently defragmentation only for latest version - is there a use-case to allow compaction for older data?
     auto update_info = get_latest_undeleted_version_and_next_version_id(
         store(), version_map(), stream_id, true, false);
 
-    auto versioned_item =  compact_symbol_data_impl(
+    auto versioned_item = defragment_symbol_data_impl(
             store(), stream_id, update_info, get_write_options(),
             segment_size.has_value() ? segment_size.value() : cfg_.write_options().segment_row_size());
 

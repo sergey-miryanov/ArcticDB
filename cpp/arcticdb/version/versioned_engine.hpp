@@ -137,9 +137,9 @@ public:
         bool via_iteration,
         bool sparsify) = 0;
 
-    virtual bool is_symbol_data_compactable(const StreamId& stream_id, std::optional<size_t> segment_size) = 0;
+    virtual bool is_symbol_fragmented(const StreamId& stream_id, std::optional<size_t> segment_size) = 0;
 
-    virtual VersionedItem compact_symbol_data(const StreamId& stream_id, std::optional<size_t> segment_size) = 0;
+    virtual VersionedItem defragment_symbol_data(const StreamId& stream_id, std::optional<size_t> segment_size) = 0;
 
     virtual void move_storage(
         KeyType key_type,

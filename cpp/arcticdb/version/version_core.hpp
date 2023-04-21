@@ -99,16 +99,16 @@ VersionedItem compact_incomplete_impl(
     bool sparsify,
     const WriteOptions& write_options);
 
-std::tuple<std::shared_ptr<PipelineContext>, ReadQuery, size_t, std::optional<size_t>> get_pre_compaction_info(
+std::tuple<std::shared_ptr<PipelineContext>, ReadQuery, size_t, std::optional<size_t>> get_pre_defragmentation_info(
         const std::shared_ptr<Store>& store,
         const StreamId& stream_id,
         const UpdateInfo& update_info,
         const WriteOptions& options,
         size_t segment_size);
 
-bool is_symbol_data_compactable_impl(size_t segments_need_compaction);
+bool is_symbol_fragmented_impl(size_t segments_need_compaction);
 
-VersionedItem compact_symbol_data_impl(
+VersionedItem defragment_symbol_data_impl(
         const std::shared_ptr<Store>& store,
         const StreamId& stream_id,
         const UpdateInfo& update_info,

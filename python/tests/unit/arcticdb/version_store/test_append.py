@@ -283,7 +283,6 @@ def test_(initial: InputFactories, append: InputFactories, match, swap, lmdb_ver
     with pytest.raises(NormalizationException):
         lib.append("s", to_append, match=match)
 
-@pytest.mark.skip("Awaiting support of toolbox")
 @pytest.mark.parametrize(
     [
         "segment_count",
@@ -292,8 +291,22 @@ def test_(initial: InputFactories, append: InputFactories, match, swap, lmdb_ver
         "num_of_segments_to_compact_threshold",
         "num_of_repeat",
         "num_of_compact_per_cycle",
+        "lmdb_version_store_column_buckets",
+        "lmdb_version_store_tiny_segment",
+        "lmdb_version_store_tiny_segment_dynamic_string",
+        "lmdb_version_store_tiny_segment_dynamic",
+        "lmdb_version_store_tiny_segment_dynamic_dynamic_string",
+        "lmdb_version_store_column_buckets_dynamic_string",
     ],
-    [(4, 20, 100, 1, 5, 2)],
+    [(4, 20, 100, 1, 5, 2, True, True, True, True, True, True)],
+    indirect=[
+        "lmdb_version_store_column_buckets",
+        "lmdb_version_store_tiny_segment",
+        "lmdb_version_store_tiny_segment_dynamic_string",
+        "lmdb_version_store_tiny_segment_dynamic",
+        "lmdb_version_store_tiny_segment_dynamic_dynamic_string",
+        "lmdb_version_store_column_buckets_dynamic_string",
+    ],
 )
 def test_append_with_compaction(
     sym,
@@ -315,6 +328,8 @@ def test_append_with_compaction(
         df = pd.DataFrame()
         for idx in range(start_idx, end_idx):
             df = pd.concat([df, get_wide_df(idx, col_per_append_df, col_name_set)])
+        if col_per_append_df == col_name_set:  # manually sort them for static schema, for newer version of panda
+            df = df.reindex(sorted(list(df.columns)), axis=1)
         df = df.astype(str if df_in_str else np.float64)
         return df
 
@@ -326,12 +341,6 @@ def test_append_with_compaction(
             if new_segment_row_size >= merged_segment_row_size:
                 new_segment_row_size = 0
         return no_of_segments
-
-    def get_segment_details(lib, sym):
-        lt = get_library_tool(lib)
-        index_keys = lt.find_keys_for_id(KeyType.TABLE_INDEX, sym)
-        max_key = max(index_keys, key=lambda x: x.version_id)
-        return mem_seg_to_dataframe(read_decode(lt, max_key)[2])
 
     def get_no_of_column_merged_segments(df):
         return len(pd.Series(df.end_row.values, index=df.start_row).to_dict().items())
@@ -360,28 +369,32 @@ def test_append_with_compaction(
                 lib.write(sym, df)
             else:
                 lib.append(sym, df)
-            segment_details = get_segment_details(lib, sym)
-            assert lib.is_symbol_data_compactable(sym, None) is (
+            segment_details = lib.read_index(sym)
+            assert lib.is_symbol_fragmented(sym, None) is (
                 get_no_of_segments_after_compaction(segment_details, merged_segment_row_size)
                 != get_no_of_column_merged_segments(segment_details)
             )
-        assert lib.is_symbol_data_compactable(sym, None) is True
-        seg_details_before_compaction = get_segment_details(lib, sym)
-        lib.compact_symbol_data(sym, None)
+        assert lib.is_symbol_fragmented(sym, None) is True
+        seg_details_before_compaction = lib.read_index(sym)
+        lib.defragment_symbol_data(sym, None)
         res = lib.read(sym).data
         res = res.reindex(sorted(list(res.columns)), axis=1)
         res = res.replace("", 0.0)
         res = res.fillna(0.0)
+        before_compact = before_compact.reindex(sorted(list(before_compact.columns)), axis=1)
         before_compact = before_compact.fillna(0.0)
 
-        seg_details = get_segment_details(lib, sym)
+        seg_details = lib.read_index(sym)
 
         assert_frame_equal(before_compact, res)
 
         assert len(seg_details) == get_no_of_segments_after_compaction(
             seg_details_before_compaction, merged_segment_row_size
         )
-        assert np.array_equal(seg_details["start_index"].iloc[1:].values, seg_details["end_index"].iloc[:-1].values)
+        indexs = (
+            seg_details["end_index"].astype(str).str.rsplit(" ", n=2).agg(" ".join).reset_index()
+        )  # start_index and end_index got merged into one column
+        assert np.array_equal(indexs.iloc[1:, 0].astype(str).values, indexs.iloc[:-1, 1].astype(str).values)
         return before_compact
 
     set_config_int("SymbolDataCompact.SegmentCount", num_of_segments_to_compact_threshold)
@@ -391,14 +404,14 @@ def test_append_with_compaction(
             [
                 lmdb_version_store_tiny_segment_dynamic,
                 lmdb_version_store_column_buckets,
-                lmdb_version_store_column_buckets_dynamic_string,
+                lmdb_version_store_tiny_segment_dynamic_dynamic_string,
             ],
         ),
         (
             False,
             [
                 lmdb_version_store_tiny_segment,
-                lmdb_version_store_tiny_segment_dynamic_dynamic_string,
+                lmdb_version_store_column_buckets_dynamic_string,
                 lmdb_version_store_tiny_segment_dynamic_string,
             ],
         ),
@@ -406,7 +419,7 @@ def test_append_with_compaction(
         for lib in libs:
             for segment_row_size in [1, 3]:
                 for df_in_str in [True, False]:
-                    for idx in range(num_of_repeat):
+                    for _ in range(num_of_repeat):
                         before_compact = pd.DataFrame()
                         for cycle in range(num_of_compact_per_cycle):
                             before_compact = run_test(
@@ -429,12 +442,12 @@ def test_append_with_cont_mem_problem(sym, lmdb_version_store_tiny_segment_dynam
     df3 = pd.DataFrame({"0": ["01234567890123456789"]}, index=[pd.Timestamp(3)])
     df = pd.concat([df0, df1, df2, df3])
 
-    for i in range(100):
+    for _ in range(100):
         lib = lmdb_version_store_tiny_segment_dynamic
         lib.write(sym, df0).version
         lib.append(sym, df1).version
         lib.append(sym, df2).version
         lib.append(sym, df3).version
-        lib.version_store.compact_symbol_data(sym, None)
+        lib.version_store.defragment_symbol_data(sym, None)
         res = lib.read(sym).data
         assert_frame_equal(df, res)
