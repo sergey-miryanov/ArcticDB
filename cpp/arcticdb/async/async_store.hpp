@@ -280,36 +280,35 @@ public:
         return res;
     }
 
-    std::vector<VariantKey> batch_read_compressed(
+    folly::Future<std::vector<VariantKey>> batch_read_compressed(
         std::vector<entity::VariantKey> &&keys,
         std::vector<ReadContinuation> &&continuations,
         const BatchReadArgs & args) override {
         util::check(keys.size() == continuations.size(),
                     "keys and continuations must has then same number of elements");
-        std::vector<folly::Future<VariantKey>> batch;
-        batch.reserve(args.batch_size_);
-        std::vector<VariantKey> res;
-        res.reserve(keys.size());
-        for (std::size_t i = 0; i < keys.size(); ++i) {
-            auto &key = keys[i];
-            auto &cont = continuations[i];
-            batch.push_back(
-                async::submit_io_task(ReadCompressedTask(key, library_, storage::ReadKeyOpts{}))
-                    .via(&async::cpu_executor())
-                    .thenValue(SegmentFunctionTask{std::move(cont)}));
-
-            if(batch.size() == args.batch_size_) {
-                auto vec = folly::collect(batch).get();
-                res.insert(end(res), std::make_move_iterator(std::begin(vec)), std::make_move_iterator(std::end(vec)));
-                batch.clear();
-            }
+        
+        
+        std::vector<std::tuple<entity::VariantKey, int>> keys_and_continuations_idx(keys.size());
+        std::transform(std::make_move_iterator(keys.cbegin()),
+                    std::make_move_iterator(keys.cend()),
+                    keys_and_continuations_idx.begin(),
+                    [](auto&& key_val) {
+            return std::make_tuple(std::move(key_val),0);
+        });
+        
+        for (auto key_and_idx = keys_and_continuations_idx.begin(); key_and_idx < keys_and_continuations_idx.end(); ++key_and_idx) {
+            std::get<1>(*key_and_idx) = key_and_idx - keys_and_continuations_idx.cbegin();
         }
-
-        if(!batch.empty()) {
-            auto vec = folly::collect(batch).get();
-            res.insert(end(res), std::make_move_iterator(std::begin(vec)), std::make_move_iterator(std::end(vec)));
-        }
-        return res;
+        
+        auto futures = folly::window(
+            std::move(keys_and_continuations_idx), 
+            [that=this, &continuations](auto&& key_and_idx) {
+                return async::submit_io_task(async::ReadCompressedTask(std::get<0>(key_and_idx), that->library_, storage::ReadKeyOpts{})).via(&async::cpu_executor()).thenValue(SegmentFunctionTask{std::move(continuations[std::get<1>(key_and_idx)])});
+            }, 
+            args.batch_size_);
+        
+        folly::Future<std::vector<VariantKey>> output_futures = std::move(folly::collect(futures)).via(&async::cpu_executor());
+        return output_futures;
     }
 
     std::vector<Composite<ProcessingSegment>> batch_read_uncompressed(

@@ -120,7 +120,7 @@ class NullStore :
         throw std::runtime_error("Not implemented for tests");
     }
 
-    std::vector<folly::Future<storage::KeySegmentPair>>
+    std::vector<folly::SemiFuture<storage::KeySegmentPair>>
     batch_read_compressed(std::vector<entity::VariantKey> &&, const BatchReadArgs &) override {
         throw std::runtime_error("Not implemented for tests");
     }

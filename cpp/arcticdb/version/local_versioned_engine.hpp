@@ -100,16 +100,27 @@ public:
         const VersionQuery& version_query
     );
 
-    FrameAndDescriptor read_dataframe_internal(
+    folly::Future<FrameAndDescriptor> read_dataframe_internal(
         const std::variant<VersionedItem, StreamId>& identifier,
         ReadQuery& read_query,
         const ReadOptions& read_options) override;
 
-    std::pair<VersionedItem, FrameAndDescriptor> read_dataframe_version_internal(
+    folly::Future<std::pair<VersionedItem, FrameAndDescriptor>> read_dataframe_version_internal(
         const StreamId &stream_id,
         const VersionQuery& version_query,
         ReadQuery& read_query,
         const ReadOptions& read_options) override;
+
+    std::pair<VersionedItem, FrameAndDescriptor> get_dataframe_version_impl(
+        FrameAndDescriptor&& frame_and_descriptor,  
+        std::optional<VersionedItem>& version);
+
+    folly::Future<std::pair<VersionedItem, FrameAndDescriptor>> get_dataframe_version_future(
+        folly::Future<FrameAndDescriptor>&& frame_and_descriptor_fut, 
+        std::optional<VersionedItem>& version);
+
+    std::pair<folly::Promise<std::tuple<StreamId, VersionQuery, ReadQuery>>,folly::Future<std::pair<VersionedItem, FrameAndDescriptor>>> read_dataframe_version_internal_get_future(
+        const ReadOptions& read_options);
 
     void write_parallel_frame(
         const StreamId& stream_id,

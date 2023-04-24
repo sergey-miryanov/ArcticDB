@@ -61,7 +61,7 @@ void LocalVersionedEngine::delete_unreferenced_pruned_indexes(
     }
 }
 
-FrameAndDescriptor LocalVersionedEngine::read_dataframe_internal(
+folly::Future<FrameAndDescriptor> LocalVersionedEngine::read_dataframe_internal(
     const std::variant<VersionedItem, StreamId>& identifier,
     ReadQuery& read_query,
     const ReadOptions& read_options) {
@@ -226,7 +226,19 @@ IndexRange LocalVersionedEngine::get_index_range(
     return index::get_index_segment_range(version.value().key_, store());
 }
 
-std::pair<VersionedItem, FrameAndDescriptor> LocalVersionedEngine::read_dataframe_version_internal(
+std::pair<VersionedItem, FrameAndDescriptor> LocalVersionedEngine::get_dataframe_version_impl(FrameAndDescriptor&& frame_and_descriptor,  std::optional<VersionedItem>& version){
+    return std::make_pair(version.value_or(VersionedItem{}), std::move(frame_and_descriptor));
+}
+
+folly::Future<std::pair<VersionedItem, FrameAndDescriptor>> LocalVersionedEngine::get_dataframe_version_future(folly::Future<FrameAndDescriptor>&& frame_and_descriptor_fut,  std::optional<VersionedItem>& version){
+    return std::move(frame_and_descriptor_fut).via(&async::cpu_executor()).thenValue(
+        [that=this, &version](FrameAndDescriptor&& frame_and_descriptor){
+            return that->get_dataframe_version_impl(std::move(frame_and_descriptor), version);
+        }
+    );
+}
+
+folly::Future<std::pair<VersionedItem, FrameAndDescriptor>> LocalVersionedEngine::read_dataframe_version_internal(
     const StreamId &stream_id,
     const VersionQuery& version_query,
     ReadQuery& read_query,
@@ -245,8 +257,8 @@ std::pair<VersionedItem, FrameAndDescriptor> LocalVersionedEngine::read_datafram
         identifier = version.value();
     }
 
-    auto frame_and_descriptor = read_dataframe_internal(identifier, read_query, read_options);
-    return std::make_pair(version.value_or(VersionedItem{}), std::move(frame_and_descriptor));
+    auto frame_and_descriptor_fut = read_dataframe_internal(identifier, read_query, read_options);
+    return get_dataframe_version_future(std::move(frame_and_descriptor_fut), version);
 }
 
 void LocalVersionedEngine::flush_version_map() {
@@ -779,20 +791,37 @@ std::pair<std::vector<AtomKey>, std::vector<FrameAndDescriptor>> LocalVersionedE
     return std::make_pair(keys, folly::collect(results_fut).get());
 }
 
+
+std::pair<folly::Promise<std::tuple<StreamId, VersionQuery, ReadQuery>>,folly::Future<std::pair<VersionedItem, FrameAndDescriptor>>> LocalVersionedEngine::read_dataframe_version_internal_get_future(const ReadOptions& read_options){
+    folly::Promise<std::tuple<StreamId, VersionQuery, ReadQuery>> p;
+    auto fut = p.getFuture();
+    auto read_dataframe_version_internal_fut = std::move(fut).via(&async::cpu_executor()).thenValue(
+        [that=this, &read_options](std::tuple<StreamId, VersionQuery, ReadQuery>&& params){
+            return that->read_dataframe_version_internal(std::get<0>(params), std::get<1>(params), std::get<2>(params), read_options);
+        }
+    );
+    return std::make_pair(std::move(p), std::move(read_dataframe_version_internal_fut));
+}
+
 std::vector<std::pair<VersionedItem, FrameAndDescriptor>> LocalVersionedEngine::batch_read_internal(
     const std::vector<StreamId>& stream_ids,
     const std::vector<VersionQuery>& version_queries,
     std::vector<ReadQuery>& read_queries,
     const ReadOptions& read_options) {
-
     std::vector<folly::Future<std::pair<VersionedItem, FrameAndDescriptor>>> results_fut;
+    std::vector<folly::Promise<std::tuple<StreamId, VersionQuery, ReadQuery>>> promises;
     for (size_t idx=0; idx < stream_ids.size(); idx++) {
         auto version_query = version_queries.size() > idx ? version_queries[idx] : VersionQuery{};
         auto read_query = read_queries.size() > idx ? read_queries[idx] : ReadQuery{};
-        results_fut.push_back(read_dataframe_version_internal(stream_ids[idx],
-                                                              version_query,
-                                                              read_query,
-                                                              read_options));
+        auto [promise, future] = read_dataframe_version_internal_get_future(read_options);
+        results_fut.push_back(std::move(future));
+        promises.push_back(std::move(promise));
+    }
+
+    for (size_t idx=0; idx < stream_ids.size(); idx++) {
+        auto version_query = version_queries.size() > idx ? version_queries[idx] : VersionQuery{};
+        auto read_query = read_queries.size() > idx ? read_queries[idx] : ReadQuery{};
+        promises[idx].setValue(std::tuple<StreamId, VersionQuery, ReadQuery>(stream_ids[idx], version_query, read_query));
     }
     return folly::collect(results_fut).get();
 }
@@ -1095,7 +1124,7 @@ std::unordered_map<KeyType, std::pair<size_t, size_t>> LocalVersionedEngine::sca
                 return key_seg.variant_key();
             });
         }
-        store->batch_read_compressed(std::move(keys), std::move(continuations), BatchReadArgs{});
+        store->batch_read_compressed(std::move(keys), std::move(continuations), BatchReadArgs{}).get();
         pair.second = key_size;
     });
     return sizes;

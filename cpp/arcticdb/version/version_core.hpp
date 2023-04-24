@@ -77,12 +77,30 @@ FrameAndDescriptor read_multi_key(
     const std::shared_ptr<Store>& store,
     const SegmentInMemory& index_key_seg);
 
-FrameAndDescriptor read_dataframe_impl(
+FrameAndDescriptor get_frame_and_descriptor_impl(
+        FrameAndDescriptor& frame,
+        std::shared_ptr<pipelines::PipelineContext>& pipeline_context,
+        const ReadOptions& read_options,
+        std::shared_ptr<BufferHolder> buffers);
+
+folly::Future<FrameAndDescriptor> get_frame_and_descriptor_future(
+        folly::Future<SegmentInMemory>&& frame_future,
+        std::shared_ptr<pipelines::PipelineContext>& pipeline_context,
+        const ReadOptions& read_options,
+        std::shared_ptr<BufferHolder> buffers);
+
+folly::Future<FrameAndDescriptor> read_dataframe_impl(
     const std::shared_ptr<Store>& store,
     const std::variant<VersionedItem, StreamId>& version_info,
     ReadQuery & read_query,
-    const ReadOptions& read_options
-    );
+    const ReadOptions& read_options);
+
+SegmentInMemory get_future_frame_impl(
+        SegmentInMemory frame);
+
+folly::Future<SegmentInMemory> get_future_frame(
+        folly::Future<std::vector<VariantKey>>&& fut,
+        SegmentInMemory& frame);
 
 FrameAndDescriptor read_index_impl(
     const std::shared_ptr<Store>& store,

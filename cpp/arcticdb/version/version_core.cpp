@@ -364,7 +364,7 @@ FrameAndDescriptor read_multi_key(
 
     AtomKey dup{keys[0]};
     ReadQuery read_query;
-    auto res = read_dataframe_impl(store, VersionedItem{std::move(dup)}, read_query, {});
+    auto res = read_dataframe_impl(store, VersionedItem{std::move(dup)}, read_query, {}).get();
 
     arcticdb::proto::descriptors::TimeSeriesDescriptor multi_key_desc{tsd};
     multi_key_desc.mutable_normalization()->CopyFrom(res.desc_.normalization());
@@ -469,7 +469,21 @@ std::vector<SliceAndKey> read_and_process(
     return collect_segments(std::move(merged));
 }
 
-SegmentInMemory read_direct(const std::shared_ptr<Store>& store,
+SegmentInMemory get_future_frame_impl(SegmentInMemory frame){
+    util::print_total_mem_usage(__FILE__, __LINE__, __FUNCTION__);
+    return frame;
+}
+
+
+folly::Future<SegmentInMemory> get_future_frame(folly::Future<std::vector<VariantKey>>&& fut, SegmentInMemory& frame){
+    return std::move(fut).via(&async::cpu_executor()).thenValue(
+                        [&frame](std::vector<VariantKey>&&){
+                            return get_future_frame_impl(frame);
+                        }
+                    );
+}
+
+folly::Future<SegmentInMemory> read_direct(const std::shared_ptr<Store>& store,
                             const std::shared_ptr<PipelineContext>& pipeline_context,
                             std::shared_ptr<BufferHolder> buffers,
                             const ReadOptions& read_options) {
@@ -479,9 +493,8 @@ SegmentInMemory read_direct(const std::shared_ptr<Store>& store,
     util::print_total_mem_usage(__FILE__, __LINE__, __FUNCTION__);
 
     ARCTICDB_DEBUG(log::version(), "Fetching frame data");
-    fetch_data(frame, pipeline_context, store, opt_false(read_options.dynamic_schema_), buffers).get();
-    util::print_total_mem_usage(__FILE__, __LINE__, __FUNCTION__);
-    return frame;
+    auto future_fetch_data = fetch_data(frame, pipeline_context, store, opt_false(read_options.dynamic_schema_), buffers).get();
+    return get_future_frame(std::move(future_fetch_data), frame);
 }
 
 void add_index_columns_to_query(const ReadQuery& read_query, const arcticdb::proto::descriptors::TimeSeriesDescriptor& desc) {
@@ -696,7 +709,7 @@ void copy_segments_to_frame(const std::shared_ptr<Store>& store, const std::shar
     }
 }
 
-SegmentInMemory prepare_output_frame(std::vector<SliceAndKey>&& items, const std::shared_ptr<PipelineContext>& pipeline_context, const std::shared_ptr<Store>& store, const ReadOptions& read_options) {
+folly::Future<SegmentInMemory> prepare_output_frame(std::vector<SliceAndKey>&& items, const std::shared_ptr<PipelineContext>& pipeline_context, const std::shared_ptr<Store>& store, const ReadOptions& read_options) {
     pipeline_context->clear_vectors();
     pipeline_context->slice_and_keys_ = std::move(items);
     std::sort(std::begin(pipeline_context->slice_and_keys_), std::end(pipeline_context->slice_and_keys_));
@@ -714,10 +727,24 @@ SegmentInMemory prepare_output_frame(std::vector<SliceAndKey>&& items, const std
     auto frame = allocate_frame(pipeline_context);
     copy_segments_to_frame(store, pipeline_context, frame);
 
-    return frame;
+    return folly::makeFuture(frame);
 }
 
-FrameAndDescriptor read_dataframe_impl(
+FrameAndDescriptor get_frame_and_descriptor_impl(SegmentInMemory&& frame, std::shared_ptr<PipelineContext>& pipeline_context, const ReadOptions& read_options,std::shared_ptr<BufferHolder> buffers){
+    ARCTICDB_DEBUG(log::version(), "Reduce and fix columns");
+    reduce_and_fix_columns(pipeline_context, frame, read_options);
+    return {std::move(frame), make_descriptor(pipeline_context, {}, pipeline_context->bucketize_dynamic_), {}, buffers};
+}
+
+folly::Future<FrameAndDescriptor> get_frame_and_descriptor_future(folly::Future<SegmentInMemory>&& frame_future, std::shared_ptr<PipelineContext>& pipeline_context, const ReadOptions& read_options,std::shared_ptr<BufferHolder> buffers){
+    return std::move(frame_future).via(&async::cpu_executor()).thenValue(
+        [&pipeline_context, &read_options, &buffers](SegmentInMemory&& frame){
+            return get_frame_and_descriptor_impl(std::move(frame), pipeline_context, read_options, buffers);
+        }
+    );
+}
+
+folly::Future<FrameAndDescriptor> read_dataframe_impl(
     const std::shared_ptr<Store>& store,
     const std::variant<VersionedItem, StreamId>& version_info,
     ReadQuery& read_query,
@@ -748,24 +775,21 @@ FrameAndDescriptor read_dataframe_impl(
     generate_filtered_field_descriptors(pipeline_context, read_query.columns);
 
     ARCTICDB_DEBUG(log::version(), "Fetching data to frame");
-    SegmentInMemory frame;
     auto buffers = std::make_shared<BufferHolder>();
     if(!read_query.query_->empty()) {
         ARCTICDB_SAMPLE(RunPipelineAndOutput, 0)
         util::check_rte(!pipeline_context->is_pickled(),"Cannot filter pickled data");
         auto segs = read_and_process(store, pipeline_context, read_query, read_options, 0u);
 
-        frame = prepare_output_frame(std::move(segs), pipeline_context, store, read_options);
+        auto frame_future = prepare_output_frame(std::move(segs), pipeline_context, store, read_options);
+        return get_frame_and_descriptor_future(std::move(frame_future), pipeline_context, read_options, buffers);
     } else {
         ARCTICDB_SAMPLE(MarkAndReadDirect, 0)
         util::check_rte(!(pipeline_context->is_pickled() && std::holds_alternative<RowRange>(read_query.row_filter)), "Cannot use head/tail/row_range with pickled data, use plain read instead");
         mark_index_slices(pipeline_context, opt_false(read_options.dynamic_schema_), pipeline_context->bucketize_dynamic_);
-        frame = read_direct(store, pipeline_context, buffers, read_options);
+        auto frame_future = read_direct(store, pipeline_context, buffers, read_options);
+        return get_frame_and_descriptor_future(std::move(frame_future), pipeline_context, read_options, buffers);
     }
-
-    ARCTICDB_DEBUG(log::version(), "Reduce and fix columns");
-    reduce_and_fix_columns(pipeline_context, frame, read_options);
-    return {frame, make_descriptor(pipeline_context, {}, pipeline_context->bucketize_dynamic_), {}, buffers};
 }
 
 VersionedItem collate_and_write(
