@@ -283,6 +283,7 @@ def test_(initial: InputFactories, append: InputFactories, match, swap, lmdb_ver
     with pytest.raises(NormalizationException):
         lib.append("s", to_append, match=match)
 
+
 @pytest.mark.parametrize(
     [
         "segment_count",
@@ -308,7 +309,7 @@ def test_(initial: InputFactories, append: InputFactories, match, swap, lmdb_ver
         "lmdb_version_store_column_buckets_dynamic_string",
     ],
 )
-def test_append_with_compaction(
+def test_append_with_defragmentation(
     sym,
     segment_count,
     col_per_append_df,
@@ -333,7 +334,7 @@ def test_append_with_compaction(
         df = df.astype(str if df_in_str else np.float64)
         return df
 
-    def get_no_of_segments_after_compaction(df, merged_segment_row_size):
+    def get_no_of_segments_after_defragmentation(df, merged_segment_row_size):
         new_segment_row_size = no_of_segments = 0
         for start_row, end_row in pd.Series(df.end_row.values, index=df.start_row).to_dict().items():
             no_of_segments = no_of_segments + 1 if new_segment_row_size == 0 else no_of_segments
@@ -371,7 +372,7 @@ def test_append_with_compaction(
                 lib.append(sym, df)
             segment_details = lib.read_index(sym)
             assert lib.is_symbol_fragmented(sym, None) is (
-                get_no_of_segments_after_compaction(segment_details, merged_segment_row_size)
+                get_no_of_segments_after_defragmentation(segment_details, merged_segment_row_size)
                 != get_no_of_column_merged_segments(segment_details)
             )
         assert lib.is_symbol_fragmented(sym, None) is True
@@ -388,7 +389,7 @@ def test_append_with_compaction(
 
         assert_frame_equal(before_compact, res)
 
-        assert len(seg_details) == get_no_of_segments_after_compaction(
+        assert len(seg_details) == get_no_of_segments_after_defragmentation(
             seg_details_before_compaction, merged_segment_row_size
         )
         indexs = (
