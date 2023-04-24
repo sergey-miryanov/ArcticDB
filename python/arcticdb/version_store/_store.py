@@ -784,7 +784,9 @@ class NativeVersionStore:
             as_of: VersionQueryInput = None,
     ) -> None:
         """
-        Calculates the specified column statistics for each row-slice for the given symbol.
+        Calculates the specified column statistics for each row-slice for the given symbol. In the future, these
+        statistics will be used by `QueryBuilder` filtering operations to reduce the number of data segments read out
+        of storage.
 
         Parameters
         ----------
