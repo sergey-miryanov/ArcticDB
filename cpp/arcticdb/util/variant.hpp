@@ -32,10 +32,9 @@ auto variant_match(std::index_sequence<I...>, std::tuple<TupleTs...> &&v, Ts... 
 
 template<class Variant, class... Ts>
 auto variant_match(Variant && v, Ts... ts){
-    if constexpr(is_tuple<std::remove_cv_t<std::remove_reference_t<Variant>>>::value)
-    {
+    if constexpr(is_tuple<std::remove_cv_t<std::remove_reference_t<Variant>>>::value){
         static constexpr auto tuple_size = std::tuple_size<std::remove_cv_t<std::remove_reference_t<decltype(v)>>>::value;
-        return variant_match(std::make_index_sequence<tuple_size>{}, std::forward<Variant>(v), ts...);    
+        return variant_match(std::make_index_sequence<tuple_size>{}, std::forward<Variant>(v), ts...); //For supporting tuple of variants, e.g. variant_match(std::make_tuple(std::variant<...>(...), std::variant<...>(...)), [](auto &&a, auto &&b){...})
     }
     else
         return std::visit(overload{ts...}, v);
@@ -43,10 +42,9 @@ auto variant_match(Variant && v, Ts... ts){
 
 template<class Variant, class... Ts>
 auto variant_match(const Variant && v, Ts... ts){
-    if constexpr(is_tuple<std::remove_cv_t<std::remove_reference_t<Variant>>>::value)
-    {
+    if constexpr(is_tuple<std::remove_cv_t<std::remove_reference_t<Variant>>>::value){
         static constexpr auto tuple_size = std::tuple_size<std::remove_cv_t<std::remove_reference_t<decltype(v)>>>::value;
-        return variant_match(std::make_index_sequence<tuple_size>{}, std::forward<Variant>(v), ts...);    
+        return variant_match(std::make_index_sequence<tuple_size>{}, std::forward<Variant>(v), ts...); 
     }
     else
         return std::visit(overload{ts...}, v);

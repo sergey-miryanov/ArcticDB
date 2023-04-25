@@ -851,11 +851,11 @@ VersionedItem sort_merge_impl(
             auto index = index_type_from_descriptor(pipeline_context->descriptor());
             stream::SegmentAggregator<TimeseriesIndex, DynamicSchema, RowCountSegmentPolicy, SparseColumnPolicy>
             aggregator{
-                [&slices](FrameSlice slice) {
+                [&slices](FrameSlice &&slice) {
                     slices.emplace_back(std::move(slice));
-                    },
-                    DynamicSchema{pipeline_context->descriptor(), index},
-                    [pipeline_context=pipeline_context, &fut_vec, &store](SegmentInMemory &&segment) {
+                },
+                DynamicSchema{pipeline_context->descriptor(), index},
+                [pipeline_context=pipeline_context, &fut_vec, &store](SegmentInMemory &&segment) {
                     auto local_index_start = TimeseriesIndex::start_value_for_segment(segment);
                     auto local_index_end = TimeseriesIndex::end_value_for_segment(segment);
                     stream::StreamSink::PartialKey

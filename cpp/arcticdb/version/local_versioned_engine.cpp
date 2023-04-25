@@ -729,7 +729,7 @@ bool LocalVersionedEngine::is_symbol_fragmented(const StreamId& stream_id, std::
     auto update_info = get_latest_undeleted_version_and_next_version_id(
             store(), version_map(), stream_id, true, false);
     auto [pipeline_context, read_query, segments_need_compaction, append_after] = get_pre_defragmentation_info(
-        store(), stream_id, update_info, get_write_options(), segment_size.has_value() ? segment_size.value() : cfg_.write_options().segment_row_size());
+        store(), stream_id, update_info, get_write_options(), segment_size.value_or(cfg_.write_options().segment_row_size()));
     return is_symbol_fragmented_impl(segments_need_compaction);
 }
 

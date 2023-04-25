@@ -111,34 +111,32 @@ void do_compact(
         auto index = stream::index_type_from_descriptor(pipeline_context->descriptor());
         stream::SegmentAggregator<IndexType, SchemaType, SegmentationPolicy, DensityPolicy>
         aggregator{
-            [&slices](pipelines::FrameSlice slice) {
+            [&slices](pipelines::FrameSlice &&slice) {
                 slices.emplace_back(std::move(slice));
-                },
-                SchemaType{pipeline_context->descriptor(), index},
-                [&fut_vec, &store, &pipeline_context](SegmentInMemory &&segment) {
+            },
+            SchemaType{pipeline_context->descriptor(), index},
+            [&fut_vec, &store, &pipeline_context](SegmentInMemory &&segment) {
                 auto local_index_start = IndexType::start_value_for_segment(segment);
                 auto local_index_end = pipelines::end_index_generator(IndexType::end_value_for_segment(segment));
                 stream::StreamSink::PartialKey
                 pk{KeyType::TABLE_DATA, pipeline_context->version_id_, pipeline_context->stream_id_, local_index_start, local_index_end};
                 fut_vec.emplace_back(store->write(pk, std::move(segment)));
-                },
-                segment_size.has_value() ? SegmentationPolicy{segment_size.value()} : SegmentationPolicy{}
+            },
+            segment_size.has_value() ? SegmentationPolicy{segment_size.value()} : SegmentationPolicy{}
         };
 
         for(auto it = target_start; it != target_end; ++it) {
             decltype(auto) sk = [&it](){
-                if constexpr(std::is_same_v<IteratorType, pipelines::PipelineContext::iterator>){
+                if constexpr(std::is_same_v<IteratorType, pipelines::PipelineContext::iterator>)
                     return it->slice_and_key();
-                }
-                else{
+                else
                     return *it;
-                }
             }();
             aggregator.add_segment(
                 std::move(sk.segment(store)),
                 sk.slice(),
-                convert_int_to_float);
-
+                convert_int_to_float
+            );
             sk.unset_segment();
         }
         aggregator.commit();

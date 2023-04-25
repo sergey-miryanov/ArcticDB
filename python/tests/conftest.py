@@ -164,11 +164,7 @@ def _version_store_factory_impl(
     name = name or default_name
     if name == "_unique_":
         name = name + str(len(used))
-    if name in used:
-        if reuse_name:
-            return used[name]  # Windows does not allow LMDB open mmap with the same path twice
-        else:
-            raise AssertionError(f"{name} is already in use")
+    assert (name not in used) or reuse_name, f"{name} is already in use"
     cfg = make_cfg(name)
     lib = cfg.env_by_id[Defaults.ENV].lib_by_path[name]
     # Use symbol list by default (can still be overridden by kwargs)

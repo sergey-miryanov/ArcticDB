@@ -136,7 +136,7 @@ template<class Index, class Schema, class SegmentingPolicy = RowCountSegmentPoli
     class SegmentAggregator : public Aggregator<Index, Schema, SegmentingPolicy, DensityPolicy> {
 public:
     using AggregatorType = Aggregator<Index, Schema, SegmentingPolicy, DensityPolicy>;
-    using SliceCallBack = folly::Function<void(pipelines::FrameSlice)>;
+    using SliceCallBack = folly::Function<void(pipelines::FrameSlice&&)>;
 
     SegmentAggregator(
         SliceCallBack&& slice_callback,
@@ -188,7 +188,7 @@ public:
         auto slice = merge_slices(slices_, AggregatorType::segment().descriptor());
         if (AggregatorType::segment().row_count() > 0) {
             AggregatorType::commit_impl();
-            slice_callback_(slice);
+            slice_callback_(std::move(slice));
         }
         segments_.clear();
         slices_.clear();
